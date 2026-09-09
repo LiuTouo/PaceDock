@@ -9,8 +9,8 @@ pub mod env;
 pub mod ipc;
 pub mod manager;
 pub mod metrics;
+pub mod physical;
 pub mod process_win;
-pub mod recommend;
 pub mod recovery;
 pub mod runner;
 pub mod storage;
@@ -77,6 +77,14 @@ pub enum FpsCapPolicy {
 #[derive(Serialize, Deserialize, Clone, Debug)]
 #[serde(rename_all = "camelCase")]
 pub struct BenchmarkConfig {
+    #[serde(default)]
+    pub method_version: u32,
+    #[serde(default)]
+    pub candidate_core_ids: Vec<u32>,
+    #[serde(default = "default_retest_warmup")]
+    pub retest_warm_up_secs: u32,
+    #[serde(default = "default_retest_sample")]
+    pub retest_sample_secs: u32,
     /// 要逐一測試的候選 LP；空 = 全部支援 LP
     #[serde(default)]
     pub candidate_lps: Vec<u32>,
@@ -88,7 +96,7 @@ pub struct BenchmarkConfig {
     pub warm_up_secs: u32,
     #[serde(default = "default_sample_secs")]
     pub sample_secs: u32,
-    /// 已停用：新排程固定 1 篩選 + 2 refinement + 3..=7 前向確認，忽略此欄位。
+    /// 舊單 LP 格式相容欄位；新版兩階段流程忽略此欄位。
     /// 保留供舊 session JSON 向後相容；預設 5。
     #[serde(default = "default_repetitions")]
     pub repetitions: u32,
@@ -122,10 +130,16 @@ pub struct BenchmarkConfig {
 }
 
 fn default_warm_up_secs() -> u32 {
-    5
+    3
 }
 fn default_sample_secs() -> u32 {
-    30
+    10
+}
+fn default_retest_warmup() -> u32 {
+    5
+}
+fn default_retest_sample() -> u32 {
+    20
 }
 fn default_repetitions() -> u32 {
     5
@@ -140,6 +154,10 @@ fn default_height() -> u32 {
 impl Default for BenchmarkConfig {
     fn default() -> Self {
         Self {
+            method_version: 0,
+            candidate_core_ids: Vec::new(),
+            retest_warm_up_secs: 5,
+            retest_sample_secs: 20,
             candidate_lps: Vec::new(),
             gpu_instance_id: None,
             workload: WorkloadKind::Vulkan,
@@ -232,6 +250,7 @@ pub struct LpResult {
 #[derive(Serialize, Clone, Debug)]
 #[serde(rename_all = "camelCase")]
 pub struct BenchmarkProgress {
+    pub target: Option<physical::CoreTarget>,
     pub session_id: String,
     pub stage: String,
     #[serde(default)]
@@ -289,7 +308,7 @@ pub enum ReliabilityStatus {
     Inconclusive,
 }
 
-/// 可靠性/信心摘要，隨 `SessionSummary` 持久化（camelCase；向後相容）。
+/// 舊單 LP 可靠性/信心摘要，僅保留歷史格式相容；新版使用 physical::QuickResult。
 /// 供前端顯示狀態、逐 round 勝者、候選/亞軍 LP、勝場數、複合分數優勢與
 /// 護欄（Avg/1% low/spike）比較結果。
 #[derive(Serialize, Deserialize, Clone, Debug, Default)]
@@ -451,6 +470,8 @@ pub struct EnvironmentStability {
 #[derive(Serialize, Deserialize, Clone, Debug, Default)]
 #[serde(rename_all = "camelCase")]
 pub struct SessionSummary {
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub quick: Option<physical::QuickResult>,
     pub id: String,
     #[serde(default)]
     pub status: SessionStatus,
@@ -513,6 +534,7 @@ pub struct SessionSummary {
 /// 歷史 session 的「可否套用」狀態（前端顯示用；相容性判定只存在後端）
 #[derive(Serialize, Clone, Debug)]
 #[serde(rename_all = "camelCase")]
+#[cfg(test)]
 pub struct ApplyStatus {
     pub can_apply: bool,
     /// None = 可套用；Some(穩定錯誤代碼) 查 i18n errors.*
@@ -592,10 +614,10 @@ pub struct SessionDetail {
     pub results: Vec<LpResult>,
     #[serde(default)]
     pub samples: Vec<CoreSample>,
-    /// 篩選階段（3 round 全 LP）的逐 LP 聚合結果；與 `results` 分離保存。
+    /// 篩選階段結果；新版每顆核心以第一個 LP 記錄指標，完整目標見 summary.quick。
     #[serde(default)]
     pub screening_results: Vec<LpResult>,
-    /// refinement 階段（Top 3 各 2 round）的逐 LP 聚合結果。
+    /// 新版前兩名的獨立複測結果；舊格式仍保留原 refinement 語意。
     #[serde(default)]
     pub refinement_results: Vec<LpResult>,
     /// 前向確認階段（Top 2，3..=7 round）的逐 LP 聚合結果；不混入篩選/refinement。
@@ -650,6 +672,12 @@ pub struct WindowIntegrity {
 #[derive(Serialize, Deserialize, Clone, Debug, Default)]
 #[serde(rename_all = "camelCase")]
 pub struct BenchmarkState {
+    #[serde(default)]
+    pub current_phase: Option<BenchmarkPhase>,
+    #[serde(default)]
+    pub gpu_busy: bool,
+    #[serde(default)]
+    pub current_target: Option<physical::CoreTarget>,
     #[serde(default)]
     pub status: SessionStatus,
     #[serde(default)]
@@ -827,6 +855,9 @@ mod tests {
     #[test]
     fn benchmark_state_serializes_camel_case() {
         let s = BenchmarkState {
+            current_phase: None,
+            gpu_busy: false,
+            current_target: None,
             status: SessionStatus::Running,
             session_id: Some("x".into()),
             current_lp: Some(3),
@@ -991,7 +1022,10 @@ mod tests {
         assert_eq!(c.height, 720);
         assert_eq!(c.width, default_width());
         assert_eq!(c.height, default_height());
-        assert_eq!(c.sample_secs, 30, "產品預設取樣應為 30 秒");
+        assert_eq!(c.sample_secs, 10);
+        assert_eq!(c.warm_up_secs, 3);
+        assert_eq!(c.retest_warm_up_secs, 5);
+        assert_eq!(c.retest_sample_secs, 20);
         assert_eq!(c.repetitions, 5, "產品預設應為 5 round");
     }
 

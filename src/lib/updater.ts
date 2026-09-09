@@ -14,7 +14,7 @@
 import { check } from '@tauri-apps/plugin-updater';
 import { relaunch } from '@tauri-apps/plugin-process';
 import { get } from 'svelte/store';
-import { updateState, isPortable } from './stores';
+import { updateState, isPortable, gpuOperationBusy } from './stores';
 import * as ipc from './ipc';
 
 type PendingUpdate = Awaited<ReturnType<typeof check>>;
@@ -96,10 +96,14 @@ export async function installUpdate(): Promise<boolean> {
   if (!curState || curState.status !== 'Available') return false;
 
   busy = true;
+  gpuOperationBusy.set(true);
+  let reserved = false;
   const cv = curState.currentVersion;
 
   try {
     if (!portable) {
+      await ipc.beginUpdate();
+      reserved = true;
       // 安裝版：確保持有 Update 物件
       if (!pendingUpdate) {
         try {
@@ -169,6 +173,8 @@ export async function installUpdate(): Promise<boolean> {
     });
     return false;
   } finally {
+    if (reserved) await ipc.endUpdate();
+    gpuOperationBusy.set(false);
     busy = false;
   }
 }

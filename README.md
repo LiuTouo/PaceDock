@@ -1,89 +1,42 @@
 # FrameAnchor
 
-<p align="center">
-  <img src="src-tauri/icons/icon.png" width="128" alt="FrameAnchor 圖示">
-</p>
+<p align="center"><img src="src-tauri/icons/icon.png" width="128" alt="FrameAnchor 圖示"></p>
 
-<p align="center">
-  Windows 專用的 CPU 核心親和性與程序優先級規則工具
-</p>
+Windows GPU 實體核心調校工具。**繁體中文** · [English](README.en.md)
 
-<p align="center">
-  <strong>繁體中文</strong> · <a href="README.en.md">English</a>
-</p>
+FrameAnchor 以合成負載比較 GPU 中斷親和性的實體核心候選，提供結果、歷史、手動套用與還原。啟動直接進入 GPU 頁，用完即可退出。
 
-FrameAnchor 是一款 Windows 桌面工具，會持續監控指定的遊戲或應用程式，並在目標程序啟動時自動套用 CPU 核心親和性（CPU affinity）、CPU priority，以及選用的 I/O／記憶體優先級規則。
+## 測試流程
 
-它適合用來實驗不同 CPU 核心配置、降低不必要的核心遷移，或將背景工作負載與延遲敏感的程序分開。FrameAnchor 不保證提高平均 FPS；實際效果取決於 CPU 拓撲、遊戲引擎、背景負載與作業系統排程行為。
+1. 自動校準 FPS cap（預設 Vulkan；進階設定可改為固定限幀）。
+2. 隨機排列 N 顆候選；各暖機 3 秒、取樣 10 秒。
+3. 篩選前兩名各暖機 5 秒、取樣 20 秒，先後順序與篩選時的相對順序相反。
+4. 還原測試前的完整 GPU 策略。
 
-## 目錄
+正常流程共 `N + min(N, 2)` 次候選擷取；校準、重試與最後還原另計。預估時間來自後端同一份排程，包含校準、啟動與重啟成本，實際等待或重試可能延長時間。暖機／取樣時間、workload、解析度及限幀可在進階設定調整。
 
-- [主要功能](#主要功能)
-- [Affinity 模式](#affinity-模式)
-- [安全性與已知限制](#安全性與已知限制)
-- [安裝](#安裝)
-- [使用方式](#使用方式)
-- [設定與資料](#設定與資料)
-- [GPU 基準測試（Beta）](#gpu-基準測試beta)
-- [開發與建置](#開發與建置)
-- [發布流程](#發布流程)
-- [技術架構](#技術架構)
-- [授權](#授權)
+候選包含整顆實體核心的全部 LP（含 SMT sibling），也包含核心 0。混合架構只提供 P-core；目前無法正確表示的處理器群組拓撲不提供候選。介面統一顯示例如「實體核心 1（LP 2、3）」。
 
-## 主要功能
+## 結果與手動套用
 
-- **持久規則**：規則儲存後，FrameAnchor 會在背景持續偵測並自動套用。
-- **快速程序偵測**：每 100 ms 執行輕量 discovery pass，命中執行檔名稱後才解析完整路徑並嘗試取得 process handle。
-- **完整路徑或檔名比對**：可精確比對單一安裝位置，或讓規則跟隨可能改變路徑的執行檔。
-- **五種 affinity 模式**：支援所有核心、排除 SMT sibling、僅 P-core、自訂核心與偏好核心清單。
-- **程序優先級**：支援 Idle、Below Normal、Normal、Above Normal 與 High；刻意不提供 Realtime。
-- **進階優先級**：可選擇性設定 I/O priority 與 memory priority。
-- **CPU Dashboard**：即時顯示每個邏輯處理器的系統使用率、P-core／E-core、SMT sibling，以及已套用程序狀態。
-- **從執行中視窗建立規則**：直接從目前可見的桌面視窗取得執行檔路徑。
-- **系統匣常駐**：支援關閉至系統匣、啟動時最小化與 single-instance。
-- **開機啟動**：透過 Windows Task Scheduler 以最高權限在使用者登入時啟動。
-- **雙語介面**：支援繁體中文與英文。
-- **GPU 基準測試（Beta）**：對選定 GPU 逐邏輯處理器測試「驅動中斷親和性」的效能，找出最適合處理 GPU 中斷的核心，並可一鍵匯入為規則推薦。
+篩選與複測分開保存，兩階段均使用 competitive score，最終排序只取複測資料。結果標示排名一致、差異接近、排名反轉或資料不足；單一候選標示無比較對象。
 
-## Affinity 模式
+複測分數相對差距不超過 0.5% 時標示接近。這只是顯示用啟發式，不是 FPS 改善幅度或統計顯著性。快速測試只排名本次合成負載的候選，不能證明勝過 Windows 原始策略。
 
-| 模式 | 行為 |
-| --- | --- |
-| `All` | 回報並使用所有邏輯處理器，不呼叫 affinity setter。 |
-| `NoSmtSibling` | 每個實體核心只選擇主要邏輯處理器，排除 SMT／Hyper-Threading sibling。 |
-| `PCoresOnly` | 只選擇系統拓撲中 efficiency class 最高的實體核心；主要用於 Intel 混合架構 CPU。 |
-| `Custom` | 手動選取邏輯處理器。 |
-| `Prefer` | 使用手動指定的核心清單。現行版本仍會依序嘗試硬 affinity、thread ideal processor 與 CPU Sets，因此不保證只採用軟性偏好。 |
+兩個有效複測候選均可手動選擇，確認後套用。接近／反轉時不預選勝者，也不追加確認測試。取消、失敗與資料不足結果不可套用。獨立手動核心設定位於進階區，標示「未經本次測試」。
 
-對需要限制核心的模式，後端依序嘗試：
+套用時前端只傳核心 ID；後端驗證 session HMAC、GPU、CPU 指紋及完整核心 LP 集合，再建立遮罩，寫入後重啟並回讀。遇到錯誤會嘗試回復，未完成的回復日誌不會刪除。還原原始策略不受新版候選限制。
 
-1. `SetProcessAffinityMask`
-2. 逐執行緒 `SetThreadIdealProcessorEx`
-3. `SetProcessDefaultCpuSets`
+## 升級與資料
 
-Dashboard 會顯示實際採用的核心清單與套用狀態。
+- 舊單 LP 歷史保留檢視，不可套用、不會自動擴大為整顆核心，也不會自動重新簽署。
+- 舊 GPU 還原紀錄繼續有效。多 bit 策略會顯示實際完整 LP 集合。
+- 舊遊戲 CPU 規則保留在設定檔中，但永不執行；儲存一般設定也會保留它們。若仍在執行的遊戲曾被舊版修改，請重新啟動遊戲。
+- 系統匣、遊戲規則頁、Dashboard、自啟與最小化啟動已移除。升級時只清理可辨識為本工具建立的舊自啟排程；失敗時顯示原因並可重試。
+- 一般設定保留語言、主題、更新與資料目錄功能。資料位於 `%APPDATA%\FrameAnchor`。
+- 閒置時關閉視窗直接退出；GPU 測試、套用或還原期間會阻止退出，必須等待操作與清理完成。
 
-## 安全性與已知限制
-
-### 管理員權限
-
-FrameAnchor 以 Windows manifest 的 `requireAdministrator` 執行。手動啟動時會出現 UAC 提示；透過應用程式建立的 Task Scheduler 工作可在登入時以最高權限啟動。
-
-### 反作弊系統
-
-FrameAnchor 只使用標準 Win32 API，不包含 driver、不注入目標程序，也不嘗試繞過反作弊保護。Easy Anti-Cheat、BattlEye、Vanguard 或其他受保護程序可能拒絕操作並回傳 `ACCESS_DENIED`。
-
-若目標使用反作弊系統，可先啟動 FrameAnchor，再啟動遊戲。FrameAnchor 會盡早取得 process handle，但這不保證受保護程序一定允許修改。
-
-### 其他限制
-
-- 僅支援 **Windows**；開發與發行目標為 Windows 11。
-- 目前只支援 **processor group 0**，最多 64 個邏輯處理器。
-- 不修改 PID 小於 8、關鍵 Windows 程序、`System32` 下的執行檔或 FrameAnchor 自身。
-- CPU priority 最高為 **High**；不提供可能造成系統無回應的 Realtime。
-- 完整路徑比對較安全；僅檔名比對可能誤套用至其他同名程序。
-- 遊戲或軟體的服務條款可能限制外部排程工具，使用前應自行確認。
-- 修改規則不等同於效能保證；應以可重複的 frame-time 測試驗證結果。
+GPU 策略操作需要管理員權限，並會重啟顯示裝置，畫面可能短暫閃黑。擷取保留 ETW／CSV 完整性、視窗檢查與取消保護。
 
 ## 安裝
 
@@ -120,97 +73,6 @@ NSIS 安裝程式會輸出至：
 ```text
 src-tauri/target/release/bundle/nsis/
 ```
-
-## 使用方式
-
-1. 啟動 FrameAnchor，接受 Windows UAC 提示。
-2. 開啟 **規則（Rules）** 頁面。
-3. 從執行中的視窗選擇目標，或建立／編輯現有規則。
-4. 選擇 affinity 模式與 CPU priority；需要時啟用進階 I/O／記憶體優先級。
-5. 選擇比對方式：
-   - **完整路徑**：只比對指定位置的執行檔。
-   - **僅檔名**：比對任何路徑下的同名執行檔。
-6. 套用並儲存規則。
-7. 保持 FrameAnchor 在背景或系統匣執行。目標程序出現時，規則會自動套用。
-8. 在 **Dashboard** 檢查 affinity、priority 與錯誤狀態。
-
-FrameAnchor 結束後，不會再監控新程序；已經套用至執行中程序的設定通常會持續到該程序結束。
-
-## 設定與資料
-
-設定檔位於：
-
-```text
-%APPDATA%\FrameAnchor\config.json
-```
-
-相關行為：
-
-- 規則與設定以 JSON 儲存。
-- 舊版設定缺少新欄位時會使用預設值，以維持向後相容。
-- 若設定檔無法解析，原檔會備份為 `config.corrupt.json`，程式改用預設設定啟動。
-- 可從設定頁直接開啟資料目錄。
-- 背景完整維護週期可在 UI 設為 0.5–5 秒；高頻 discovery pass 固定為 100 ms。
-
-預設設定包括：
-
-- 語言：繁體中文
-- 啟動時最小化：開啟
-- 關閉至系統匣：開啟
-- 開機啟動：關閉
-- 背景維護間隔：1 秒
-- 進階優先級選項：隱藏
-
-## GPU 基準測試（Beta）
-
-FrameAnchor 內建 GPU 基準測試，目的是找出**最適合處理指定顯示卡驅動中斷**的邏輯處理器（LP）。它會逐 LP 切換 GPU 驅動的「中斷親和性」（Interrupt Affinity），用量測工具收集 frame-time，統計後標出最佳核心與表現嚴重低落的核心，並可把推薦核心集合一鍵匯入為規則草稿。
-
-### 與一般 CPU／GPU 基準測試的區別
-
-- **不是圖形基準測試**：不比較畫質、場景或不同顯示卡的 FPS；畫面只是固定的黑白交替、無 vsync、不設上限的 workload。
-- **不是「哪顆核心跑遊戲最快」**：測的是「哪顆核心處理 GPU 中斷時，frame-time 最穩定／最高」。
-- 透過每次測試將 GPU 驅動中斷親和性鎖定到單一 LP，量測對該核心的影響；統計包含 Avg／Max／Min／STDEV、1%／0.1%／0.01%／0.005% Low 與同比例的 Percentile（皆採 frame-count 最慢 N% 演算法）。
-
-### 預期耗時
-
-每次測試核心的耗時約為：
-
-```text
-取樣秒數 + 暖機秒數 + 啟動等待（5 秒）+ 驅動重啟與穩定（約 14 秒）+ 緩衝
-```
-
-總耗時約為 `總 capture 數 × 上述每核心耗時`。新排程為：2 輪篩選測全部選定核心 + 3 到 5 輪配對確認只重測前兩名，因此 N 核心共 `2N + 6`（最少）到 `2N + 10`（最多）次 capture。例如 16 核心、取樣 30 秒，約 38 至 42 次 capture。開始前 UI 會顯示「最多」次數與預估分鐘數。
-
-### 風險警告
-
-測試會對選定顯示卡反覆**停用／啟用驅動**（disable/enable），可能導致：
-
-- 畫面黑屏數秒
-- 顯示器暫時斷訊、解析度重置
-- 其他使用同一 GPU 的工作（含瀏覽器硬體加速）暫停
-
-**開始後請勿操作電腦**，直到測試完成或按下取消。測試本身使用可還原的 crash-safe 日誌；即使中途當機，下次啟動也會自動還原測試前策略。
-
-### 資料與歷史
-
-- 測試記錄儲存於 `%APPDATA%\FrameAnchor\benchmarks\<session-uuid>\`，內含 `session.json`、每輪每核心的 `round-<輪>-lp-<核心>.csv`。
-- 歷史列表顯示每筆記錄的日期、GPU、API、狀態、最佳核心與磁碟大小；可檢視詳情或刪除（刪除需確認）。
-- 執行中的還原日誌為 `%APPDATA%\FrameAnchor\benchmark-recovery.json`；套用後的單層還原記錄為 `gpu-restore.json`。
-- 歷史預設不會自動刪除。
-
-### 套用與還原語意
-
-- 測試本身**不會自動套用**任何策略——每次測試結束都會把 GPU 中斷親和性還原到測試前狀態。
-- 「套用」僅在結果通過可靠性門檻（Passed）時開放：先以 2 輪篩選選出前兩名核心，再以 3 到 5 輪獨立配對確認（篩選資料不混入推論），以保守一致性規則（逐輪配對效應需一致超越門檻）搭配 bootstrap 穩定性區間判定候選是否明顯優於亞軍且護欄未倒退。此為小型樣本決策啟發式，非顯著性檢定。證據不足或差異過小（Equivalent）或無法判定（Inconclusive）的 session 均不可套用。
-- 完成後可在結果頁或歷史中，明確按下「套用最佳核心到 GPU」，才會把中斷親和性鎖定到該最佳 LP。
-- 「還原先前設定」會回到**最近一次成功套用之前**的策略（單層還原記錄）。
-- 套用／還原都需確認，且會再次短暫重啟 GPU 驅動（可能閃屏）。
-
-### 相容性限制
-
-- 每筆完成記錄會保存當時的 **CPU 指紋**（CPU 身分＋拓撲）與 **GPU 穩定 PnP instance ID**。
-- 只有「目前 CPU 指紋一致、且該 GPU 仍存在」的完成記錄才可套用或匯入；不相容的歷史仍可檢視，但套用／匯入會被停用並說明原因。
-- 若目前 CPU 硬體與儲存於規則上的推薦指紋不符，會顯示過時硬體警告，但資料保留。
 
 ## 開發與建置
 
@@ -332,30 +194,12 @@ npm run tauri signer generate -- -w src-tauri
 ### 注意事項
 
 - Windows 二進位檔**未經數位簽章**，下載及執行時 Windows Defender SmartScreen 可能顯示警告。這是預期行為，不影響程式功能。
-- 可攜版與安裝版可從 About 頁面手動檢查更新；可攜版啟動時也會自動檢查。
+- 可攜版與安裝版可從 設定頁面手動檢查更新；可攜版啟動時也會自動檢查。
 - GitHub Actions 工作流程定義於 `.github/workflows/release.yml`。
 
 ## 技術架構
 
-| 層 | 技術 |
-| --- | --- |
-| 桌面框架 | Tauri v2 |
-| 前端 | Svelte 5 runes、TypeScript、Vite |
-| 後端 | Rust、tokio |
-| Windows 介面 | `windows` crate 與直接 Win32 API |
-| 國際化 | `svelte-i18n` |
-| 安裝程式 | NSIS |
-
-執行時包含兩個主要背景工作：
-
-- **Watcher**：100 ms discovery pass，加上依設定週期執行的完整維護、重試與狀態更新。
-- **Usage sampler**：Dashboard 需要且存在已套用程序時，每秒讀取各邏輯處理器的系統使用率。
-
-詳細的產品原始規格可參考 [`PLAN.md`](PLAN.md)，但當規格與現行程式碼不一致時，應以程式碼為準。
-
-## 專案狀態
-
-專案仍處於早期階段，API、設定格式與排程行為可能在後續版本調整。安裝版與可攜版均支援自動檢查更新與手動更新，版本號由執行檔內建 metadata 動態取得。
+Tauri v2、Svelte 5、TypeScript 與 Rust。後端依拓撲產生候選，使用 PresentMon 擷取 frametime；GPU 操作由單一排他管理者協調，保留策略快照、HMAC、取消與 crash recovery。新版方法版本為 3，完整核心證據保存於 `summary.quick`，舊 `lp`／`bestLp` 永遠維持 LP 索引語意。
 
 ## 授權
 

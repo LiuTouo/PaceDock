@@ -15,7 +15,6 @@
   );
 
   let saveError = $state<string | null>(null);
-  let autostartBusy = $state(false);
 
   // 序列化 save 佇列 + 最後成功快照：快速連續 save 不會有 stale rollback 覆蓋較新成功。
   let saveChain = Promise.resolve();
@@ -49,25 +48,6 @@
         }
       }
     });
-  }
-
-  async function toggleAutostart(enable: boolean) {
-    const current = $settings;
-    if (!current || autostartBusy) return;
-    const previous = current.startWithWindows;
-    autostartBusy = true;
-    try {
-      await ipc.setAutostart(enable);
-      const next = { ...($settings ?? current), startWithWindows: enable };
-      settings.set(next);
-      confirmed = confirmed ? { ...confirmed, startWithWindows: enable } : next;
-      saveError = null;
-    } catch (e) {
-      settings.update((value) => value ? { ...value, startWithWindows: previous } : value);
-      saveError = String(e);
-    } finally {
-      autostartBusy = false;
-    }
   }
 
   /// 手動檢查更新
@@ -113,65 +93,6 @@
       </span>
     </div>
   {/if}
-
-  <!-- ── 一般 ── -->
-  <section class="panel settings-section">
-    <h2 class="section-title">{$t('settings.general')}</h2>
-    <div class="section">
-      <label class="opt">
-        <input
-          type="checkbox"
-          checked={$settings.startWithWindows}
-          disabled={autostartBusy}
-          onchange={(e) => toggleAutostart(e.currentTarget.checked)}
-        />
-        <span>{$t('settings.autostart')}</span>
-      </label>
-      <label class="opt">
-        <input
-          type="checkbox"
-          checked={$settings.startMinimized}
-          onchange={(e) => save({ startMinimized: e.currentTarget.checked })}
-        />
-        <span>{$t('settings.startMinimized')}</span>
-      </label>
-      <label class="opt">
-        <input
-          type="checkbox"
-          checked={$settings.closeToTray}
-          onchange={(e) => save({ closeToTray: e.currentTarget.checked })}
-        />
-        <span>{$t('settings.closeToTray')}</span>
-      </label>
-
-      <div class="opt col">
-        <span>
-          {$t('settings.pollInterval')}：
-          {$t('settings.seconds', { values: { value: ($settings.pollIntervalMs / 1000).toFixed(1) } })}
-        </span>
-        <input
-          type="range"
-          min="200"
-          max="60000"
-          step="100"
-          value={$settings.pollIntervalMs}
-          onchange={(e) => save({ pollIntervalMs: Number(e.currentTarget.value) })}
-          oninput={(e) =>
-            settings.update((s) => (s ? { ...s, pollIntervalMs: Number(e.currentTarget.value) } : s))}
-        />
-        <span class="hint">{$t('settings.pollHint')}</span>
-      </div>
-
-      <label class="opt">
-        <input
-          type="checkbox"
-          checked={$settings.showAdvancedPriorities}
-          onchange={(e) => save({ showAdvancedPriorities: e.currentTarget.checked })}
-        />
-        <span>{$t('settings.showAdvanced')}</span>
-      </label>
-    </div>
-  </section>
 
   <!-- ── 外觀 ── -->
   <section class="panel settings-section">
@@ -299,8 +220,7 @@
     min-height: var(--control-md);
   }
 
-  .opt.row,
-  .opt.col {
+  .opt.row {
     cursor: default;
   }
 
@@ -308,18 +228,7 @@
     justify-content: space-between;
   }
 
-  .opt.col {
-    flex-direction: column;
-    align-items: stretch;
-    gap: var(--space-2);
-    padding: var(--space-3);
-    background: var(--surface-2);
-    border-radius: var(--radius-md);
-  }
 
-  input[type='range'] {
-    accent-color: var(--accent);
-  }
 
   .tag {
     background: var(--surface-2);

@@ -2,31 +2,27 @@
   import { onMount } from 'svelte';
   import { listen } from '@tauri-apps/api/event';
   import { locale, t } from 'svelte-i18n';
-  import Dashboard from './pages/Dashboard.svelte';
   import GpuTest from './pages/GpuTest.svelte';
-  import Rules from './pages/Rules.svelte';
   import SettingsPage from './pages/Settings.svelte';
   import ConfirmDialog from './components/ConfirmDialog.svelte';
   import * as ipc from './lib/ipc';
   import {
-    applied,
+    gpuOperationBusy,
     benchmarkProgress,
     benchmarkState,
     isPortable,
-    rules,
     settings,
     topology,
     updateState,
-    usage,
   } from './lib/stores';
-  import type { AppliedProcess, BenchmarkProgress, UpdateState } from './lib/types';
+  import type { BenchmarkProgress, UpdateState } from './lib/types';
   import { checkForUpdates, installUpdate } from './lib/updater';
 
-  type Tab = 'dashboard' | 'rules' | 'gpu' | 'settings';
-  let tab = $state<Tab>('dashboard');
+  type Tab = 'gpu' | 'settings';
+  let tab = $state<Tab>('gpu');
 
   // 基準測試執行中 → 鎖定導覽，不能離開 GPU 測試頁
-  const benchmarkRunning = $derived($benchmarkState?.status === 'Running');
+  const benchmarkRunning = $derived($benchmarkState?.status === 'Running' || $benchmarkState?.gpuBusy || $gpuOperationBusy);
   // compact progress 視窗模式（後端 windowLayout=CompactProgress）→ 隱藏側欄/橫幅
   const compact = $derived($benchmarkState?.windowLayout === 'CompactProgress');
 
@@ -53,16 +49,22 @@
   // 啟動時找到的更新橫幅：本機 dismiss 旗標，不影響 store 狀態
   let updateBannerDismissed = $state(false);
   let updateConfirmOpen = $state(false);
+  let exitBlocked = $state(false);
+  let migration = $state<import('./lib/types').MigrationStatus | null>(null);
+  async function dismissMigration() { await ipc.acknowledgeMigration(); if (migration) migration.noticeRequired = false; }
+  async function retryMigration() { try { await ipc.retryAutostartCleanup(); } finally { migration = await ipc.getMigrationStatus(); } }
+
 
   onMount(() => {
     let unlisteners: Array<() => void> = [];
+    const poll = setInterval(() => { if ($benchmarkState?.gpuBusy || $benchmarkState?.status === 'Running') void ipc.getBenchmarkState().then(benchmarkState.set); }, 1000);
     (async () => {
+      unlisteners.push(await listen('gpu-exit-blocked', () => { exitBlocked = true; }));
+      migration = await ipc.getMigrationStatus();
       topology.set(await ipc.getTopology());
-      rules.set(await ipc.getRules());
       const s = await ipc.getSettings();
       settings.set(s);
       locale.set(s.language);
-      applied.set(await ipc.getApplied());
 
       // 重建基準測試執行期狀態（reload 後不重啟/不停止 session）
       benchmarkState.set(await ipc.getBenchmarkState());
@@ -81,10 +83,6 @@
       });
 
       // 事件監聽（必須在檢查更新前註冊，避免 race）
-      unlisteners.push(await listen<number[]>('usage-update', (e) => usage.set(e.payload)));
-      unlisteners.push(
-        await listen<AppliedProcess[]>('applied-update', (e) => applied.set(e.payload)),
-      );
       unlisteners.push(
         await listen<UpdateState>('update-state', (e) => updateState.set(e.payload)),
       );
@@ -99,7 +97,7 @@
       // 啟動時自動檢查更新（匯流至 updater 模組）
       await checkForUpdates();
     })();
-    return () => unlisteners.forEach((u) => u());
+    return () => { clearInterval(poll); unlisteners.forEach((u) => u()); };
   });
 
   /** 橫幅「安裝」按鈕：確認後呼叫共享安裝流程 */
@@ -116,16 +114,6 @@
 
   // ── 導覽項目定義（icon 為 inline SVG path data） ──
   const navItems: { tab: Tab; label: string; icon: string }[] = [
-    {
-      tab: 'dashboard',
-      label: 'dashboard',
-      icon: 'M3 13h8V3H3v10zm0 8h8v-6H3v6zm10 0h8V11h-8v10zm0-18v6h8V3h-8z',
-    },
-    {
-      tab: 'rules',
-      label: 'rules',
-      icon: 'M19.14 12.94c.04-.3.06-.61.06-.94 0-.32-.02-.64-.07-.94l2.03-1.58a.49.49 0 00.12-.61l-1.92-3.32a.49.49 0 00-.59-.22l-2.39.96c-.5-.38-1.03-.7-1.62-.94L14.4 2.81a.48.48 0 00-.48-.31h-3.84a.48.48 0 00-.48.31l-.36 2.54c-.59.24-1.13.57-1.62.94l-2.39-.96a.49.49 0 00-.59.22L2.74 8.87c-.12.21-.08.47.12.61l2.03 1.58c-.05.3-.07.62-.07.94s.02.64.07.94l-2.03 1.58a.49.49 0 00-.12.61l1.92 3.32c.12.22.37.29.59.22l2.39-.96c.5.38 1.03.7 1.62.94l.36 2.54c.05.23.26.41.48.41h3.84c.24 0 .44-.18.48-.41l.36-2.54c.59-.24 1.13-.56 1.62-.94l2.39.96c.22.08.47 0 .59-.22l1.92-3.32c.12-.22.07-.47-.12-.61l-2.01-1.58zM12 15.6A3.6 3.6 0 1115.6 12 3.61 3.61 0 0112 15.6z',
-    },
     {
       tab: 'gpu',
       label: 'gpuTest',
@@ -175,6 +163,9 @@
 
   <!-- 主內容區 -->
   <main class="content">
+    {#if exitBlocked}<div role="alert" class="panel"><p>{$t('quick.exitBlocked')}</p><button onclick={() => exitBlocked = false}>{$t('quick.dismiss')}</button></div>{/if}
+    {#if !compact && migration?.noticeRequired}<div role="status" class="panel"><p>{$t('quick.migration')}</p><button onclick={dismissMigration}>{$t('quick.dismiss')}</button></div>{/if}
+    {#if !compact && migration?.cleanupError}<div role="alert" class="panel"><p>{$t('quick.cleanupFailed')}: {migration.cleanupError}</p><button onclick={retryMigration}>{$t('quick.retry')}</button></div>{/if}
     {#if $updateState?.status === 'Available' && !updateBannerDismissed && !compact}
       <div class="update-banner" role="status">
         <svg class="banner-icon" viewBox="0 0 24 24" aria-hidden="true">
@@ -197,11 +188,7 @@
     {/if}
 
     <div class="page">
-      {#if tab === 'dashboard'}
-        <Dashboard />
-      {:else if tab === 'rules'}
-        <Rules />
-      {:else if tab === 'gpu'}
+      {#if tab === 'gpu'}
         <GpuTest />
       {:else}
         <SettingsPage />

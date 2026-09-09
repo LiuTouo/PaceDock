@@ -1,32 +1,20 @@
 import { invoke } from '@tauri-apps/api/core';
 import type {
   AffinityPolicy,
-  AppliedProcess,
-  ApplyStatus,
   BenchmarkConfig,
   BenchmarkState,
   GpuDevice,
-  Rule,
   SessionDetail,
   SessionSummary,
   Settings,
   StorageInfo,
   Topology,
   UpdateInfo,
-  WindowInfo,
 } from './types';
 
 export const getTopology = () => invoke<Topology>('get_topology');
-export const listWindows = () => invoke<WindowInfo[]>('list_windows');
-export const getRules = () => invoke<Rule[]>('get_rules');
-export const saveRule = (rule: Rule) => invoke<void>('save_rule', { rule });
-export const deleteRule = (id: string) => invoke<void>('delete_rule', { id });
 export const getSettings = () => invoke<Settings>('get_settings');
 export const saveSettings = (settings: Settings) => invoke<void>('save_settings', { settings });
-export const setAutostart = (enable: boolean) => invoke<void>('set_autostart', { enable });
-export const getApplied = () => invoke<AppliedProcess[]>('get_applied');
-export const reapplyAll = () => invoke<void>('reapply_all');
-export const setUsageStreaming = (active: boolean) => invoke<void>('set_usage_streaming', { active });
 export const openDataFolder = () => invoke<void>('open_data_folder');
 
 // 更新相關
@@ -45,21 +33,16 @@ export const deleteBenchmarkSession = (id: string) =>
 export const getBenchmarkStorageInfo = () => invoke<StorageInfo>('get_benchmark_storage_info');
 export const getGpuAffinityPolicy = (instanceId: string) =>
   invoke<AffinityPolicy>('get_gpu_affinity_policy', { instanceId });
-export const applyBestGpuAffinity = (sessionId: string) =>
-  invoke<void>('apply_best_gpu_affinity', { sessionId });
-export const validateEquivalentCandidate = (sessionId: string, selectedLp: number) =>
-  invoke<void>('validate_equivalent_candidate', { sessionId, selectedLp });
-export const applyEquivalentGpuAffinity = (sessionId: string, selectedLp: number) =>
-  invoke<void>('apply_equivalent_gpu_affinity', { sessionId, selectedLp });
-export const getBenchmarkApplyStatus = (sessionId: string) =>
-  invoke<ApplyStatus>('get_benchmark_apply_status', { sessionId });
-export const listImportableSessions = () => invoke<SessionSummary[]>('list_importable_sessions');
-export const computeRecommendedCores = (bestLp: number, severeLps: number[]) =>
-  invoke<number[]>('compute_recommended_cores', { bestLp, severeLps });
-export const getCurrentCpuFingerprint = () => invoke<string>('get_current_cpu_fingerprint');
 export const restorePreviousGpuAffinity = () => invoke<void>('restore_previous_gpu_affinity');
-export const applyGpuAffinity = (instanceId: string, lp: number) =>
-  invoke<void>('apply_gpu_affinity', { instanceId, lp });
 export const startGpuBenchmark = (config: BenchmarkConfig) =>
   invoke<void>('start_gpu_benchmark', { config });
 export const cancelBenchmark = () => invoke<void>('cancel_benchmark');
+export const getCoreCandidates = () => invoke<import('./types').CoreTarget[]>('get_core_candidates');
+export const getQuickSchedule = (config: BenchmarkConfig) => invoke<import('./types').QuickSchedule>('get_quick_schedule', { config });
+export const applyGpuCore = (instanceId: string, coreId: number, sessionId: string | null) => invoke<void>('apply_gpu_core', { instanceId, coreId, sessionId });
+export const getMigrationStatus = () => invoke<import('./types').MigrationStatus>('get_migration_status');
+export const acknowledgeMigration = () => invoke<void>('acknowledge_migration');
+export const retryAutostartCleanup = () => invoke<void>('retry_autostart_cleanup');
+
+export const beginUpdate = () => invoke<void>('begin_update');
+export const endUpdate = () => invoke<void>('end_update');

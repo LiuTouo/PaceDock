@@ -11,6 +11,7 @@ use windows::Win32::System::SystemInformation::{
 const LTP_PC_SMT: u8 = 0x1;
 
 use crate::error::TopologyError;
+#[cfg(test)]
 use crate::model::{AffinityMode, AffinitySpec};
 
 /// CPU 拓撲（PLAN §5.3）
@@ -66,8 +67,8 @@ pub fn enumerate_topology() -> Result<Topology, TopologyError> {
 
     // 3) 走訪可變長結構鏈
     let mut raw_cores: Vec<(Vec<u32>, u8, bool)> = Vec::new(); // (lp_indices, efficiency, is_smt)
-    // 偵測到的群組編號。僅 group 0 進拓撲：group 1 的「群組內 LP index」與 group 0
-    // 重疊，混入會讓 mask 靜默指向錯誤核心（PLAN §15.1：多群組 → 警告，不支援）。
+                                                               // 偵測到的群組編號。僅 group 0 進拓撲：group 1 的「群組內 LP index」與 group 0
+                                                               // 重疊，混入會讓 mask 靜默指向錯誤核心（PLAN §15.1：多群組 → 警告，不支援）。
     let mut groups: std::collections::BTreeSet<u16> = std::collections::BTreeSet::new();
     let mut offset = 0usize;
     while offset < needed as usize {
@@ -75,8 +76,22 @@ pub fn enumerate_topology() -> Result<Topology, TopologyError> {
             &*(buf.as_ptr().add(offset) as *const SYSTEM_LOGICAL_PROCESSOR_INFORMATION_EX)
         };
         if header.Relationship == RelationProcessorCore {
-            let proc_rel: PROCESSOR_RELATIONSHIP = unsafe { header.Anonymous.Processor };
-            for ga in proc_rel.GroupMask.iter().take(proc_rel.GroupCount as usize) {
+            let proc_rel: &PROCESSOR_RELATIONSHIP = unsafe { &header.Anonymous.Processor };
+            let masks_offset = proc_rel.GroupMask.as_ptr() as usize - header as *const _ as usize;
+            let masks_bytes =
+                proc_rel.GroupCount as usize * std::mem::size_of_val(&proc_rel.GroupMask[0]);
+            if masks_offset + masks_bytes > header.Size as usize
+                || offset + header.Size as usize > needed as usize
+            {
+                return Err(TopologyError::QueryFailed);
+            }
+            let masks = unsafe {
+                std::slice::from_raw_parts(
+                    proc_rel.GroupMask.as_ptr(),
+                    proc_rel.GroupCount as usize,
+                )
+            };
+            for ga in masks {
                 groups.insert(ga.Group);
                 if ga.Group == 0 {
                     let lp_indices = mask_to_indices(ga.Mask as u64);
@@ -156,6 +171,7 @@ pub fn build_topology(mut raw_cores: Vec<(Vec<u32>, u8, bool)>) -> Topology {
 }
 
 /// affinity 模式 → mask（PLAN §7.1）。解析結果為 0 時 fallback 全部核心。
+#[cfg(test)]
 pub fn resolve_mask(spec: &AffinitySpec, topo: &Topology) -> u64 {
     let all = if topo.total_lp >= 64 {
         u64::MAX

@@ -20,8 +20,10 @@ pub const ENV_CPU_MAX_WAIT_SECS: u64 = 60;
 
 /// 時間漂移門檻（%）：screening block 中位數 / confirmation pair 中點偏離
 /// 參考值超過此比例視為環境漂移。
+#[cfg(test)]
 pub const DRIFT_THRESHOLD_PCT: f64 = 5.0;
 /// 單一 block/pair 的漂移重跑次數上限。
+#[cfg(test)]
 pub const MAX_DRIFT_RETRIES: u32 = 2;
 
 /// 環境探針抽象：生產用 [`RealEnvironmentProbe`]，測試注入 fake。
@@ -183,6 +185,7 @@ pub fn wait_for_cpu_idle(
 
 /// 中位數漂移百分比：`abs(current - reference) / reference * 100`。
 /// reference ≤0 或非有限 → 0.0（無漂移）。
+#[cfg(test)]
 pub fn drift_pct(reference: f64, current: f64) -> f64 {
     if !reference.is_finite() || reference <= 0.0 || !current.is_finite() {
         return 0.0;

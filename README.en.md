@@ -1,88 +1,42 @@
 # FrameAnchor
 
-<p align="center">
-  <img src="src-tauri/icons/icon.png" width="128" alt="FrameAnchor icon">
-</p>
+<p align="center"><img src="src-tauri/icons/icon.png" width="128" alt="FrameAnchor icon"></p>
 
-<p align="center">
-  A Windows-only CPU affinity and process priority rule manager
-</p>
+A Windows GPU physical-core tuning tool. [繁體中文](README.md) · **English**
 
-<p align="center">
-  <a href="README.md">繁體中文</a> · <strong>English</strong>
-</p>
+FrameAnchor compares GPU interrupt-affinity candidates using a synthetic workload, with results, history, manual application and restoration. It opens directly on the GPU page and exits when you close it while idle.
 
-FrameAnchor is a Windows desktop utility that continuously monitors selected games or applications and automatically applies CPU affinity, CPU priority, and optional I/O and memory priority rules when a target process starts.
+## Test workflow
 
-It is intended for experimenting with CPU core layouts, reducing unnecessary core migrations, or separating background workloads from latency-sensitive processes. FrameAnchor does not guarantee higher average FPS; results depend on CPU topology, the game engine, background load, and Windows scheduler behavior.
+1. Calibrate the FPS cap (Vulkan by default; advanced settings also offer a fixed cap).
+2. Shuffle N physical-core candidates. Warm up each for 3 seconds, then capture for 10 seconds.
+3. Retest the top two: 5 seconds of warmup and 20 seconds of capture each, reversing their relative screening order.
+4. Restore the complete pre-test GPU policy.
 
-## Table of Contents
+The normal schedule contains `N + min(N, 2)` candidate captures; calibration, retries and final restoration are additional. Estimates come from the same backend schedule, including calibration, startup and restart costs. Waits and retries may extend the actual duration. Advanced settings expose durations, workload, resolution and FPS caps.
 
-- [Features](#features)
-- [Affinity Modes](#affinity-modes)
-- [Security and Known Limitations](#security-and-known-limitations)
-- [Installation](#installation)
-- [Usage](#usage)
-- [Configuration and Data](#configuration-and-data)
-- [GPU Benchmark (Beta)](#gpu-benchmark-beta)
-- [Development and Building](#development-and-building)
-- [Architecture](#architecture)
-- [License](#license)
+Each candidate includes every LP of its physical core, including SMT siblings and core 0. Hybrid CPUs offer P-cores only. Unsupported processor-group topologies have no candidates. Labels consistently show, for example, “Physical core 1 (LP 2, 3)”.
 
-## Features
+## Results and application
 
-- **Persistent rules**: Once saved, rules are continuously monitored and applied in the background.
-- **Fast process discovery**: A lightweight discovery pass runs every 100 ms. Full path resolution and process handle acquisition are attempted only after an executable name matches.
-- **Full-path or file-name matching**: Precisely target one installation path or follow an executable whose location may change.
-- **Five affinity modes**: All cores, exclude SMT siblings, P-cores only, custom cores, and a preferred-core list.
-- **Process priority**: Idle, Below Normal, Normal, Above Normal, and High are supported. Realtime is intentionally unavailable.
-- **Advanced priorities**: Optionally set I/O priority and memory priority.
-- **CPU Dashboard**: Shows real-time system usage for each logical processor, P-core/E-core and SMT sibling information, and applied-process status.
-- **Create rules from running windows**: Capture the executable path from a currently visible desktop window.
-- **System tray operation**: Supports close-to-tray, start minimized, and single-instance behavior.
-- **Start with Windows**: Uses Windows Task Scheduler to launch with the highest privileges at user logon.
-- **Bilingual interface**: Traditional Chinese and English.
-- **GPU benchmark (Beta)**: Tests GPU driver interrupt affinity per logical processor on a selected GPU, finds the best core for GPU interrupts, and can import the result into a rule draft with one click.
+Screening and retest evidence are stored separately. Both use the existing competitive score; final ranking uses retest data only. Results are consistent, close, reversed or insufficient; a single candidate has no comparison candidate.
 
-## Affinity Modes
+A relative retest score gap of at most 0.5% is marked close. This is a display heuristic, not FPS improvement or statistical significance. Quick tests rank this synthetic workload only and do not establish an advantage over the original Windows policy.
 
-| Mode | Behavior |
-| --- | --- |
-| `All` | Reports and uses all logical processors without calling an affinity setter. |
-| `NoSmtSibling` | Selects the primary logical processor of each physical core and excludes SMT/Hyper-Threading siblings. |
-| `PCoresOnly` | Selects physical cores with the highest efficiency class in the detected topology; primarily intended for Intel hybrid CPUs. |
-| `Custom` | Manually select logical processors. |
-| `Prefer` | Uses a manually selected core list. The current implementation still tries hard affinity, thread ideal processors, and CPU Sets in order, so this mode is not guaranteed to remain soft-only. |
+Either valid retested core can be selected and applied after confirmation. Close or reversed results do not preselect a winner or trigger extra testing. Failed, cancelled and insufficient results cannot be applied. Independent manual selection is available under advanced settings and labeled “Not tested in this session”.
 
-For modes that restrict the core set, the backend tries the following mechanisms in order:
+The frontend sends core IDs only. The backend verifies the session HMAC, GPU, CPU fingerprint and complete tested LP set before building the mask, writing, restarting and reading it back. Errors trigger recovery attempts. Unfinished recovery journals are retained. Restoring an original policy is not restricted by the new candidate rules.
 
-1. `SetProcessAffinityMask`
-2. Per-thread `SetThreadIdealProcessorEx`
-3. `SetProcessDefaultCpuSets`
+## Upgrade and data
 
-The Dashboard displays the selected core list and the resulting application status.
+- Legacy single-LP history is view-only. It cannot be applied, expanded to a whole core or automatically re-signed.
+- Existing GPU restoration records remain valid. Multi-bit policies display their complete LP set.
+- Legacy game CPU rules remain in the configuration, including when general settings are saved, but never execute. Restart any running game modified by an older version.
+- The tray, Dashboard, game rules, autostart and minimized startup are removed. Recognizable legacy startup tasks are cleaned up; failures display a reason and a retry action.
+- Language, theme, updates and the data-folder action remain available. Data lives in `%APPDATA%\FrameAnchor`.
+- Closing the window exits while idle. GPU testing, application or restoration blocks exit until operations and cleanup finish.
 
-## Security and Known Limitations
-
-### Administrator Privileges
-
-FrameAnchor uses `requireAdministrator` in its Windows manifest. Manual launches display a UAC prompt. A Task Scheduler entry created by the application can launch it with the highest privileges at logon.
-
-### Anti-Cheat Systems
-
-FrameAnchor only uses standard Win32 APIs. It does not install a driver, inject into target processes, or attempt to bypass anti-cheat protection. Easy Anti-Cheat, BattlEye, Vanguard, and other protected processes may reject operations with `ACCESS_DENIED`.
-
-For an anti-cheat-protected target, you can start FrameAnchor before launching the game. FrameAnchor attempts to acquire a process handle early, but this does not guarantee that a protected process will allow changes.
-
-### Other Limitations
-
-- **Windows only**; development and release targets are Windows 11.
-- Only **processor group 0** is supported, with a maximum of 64 logical processors.
-- PIDs below 8, critical Windows processes, executables under `System32`, and FrameAnchor itself are never modified.
-- The highest CPU priority is **High**. Realtime is excluded because it can make the system unresponsive.
-- Full-path matching is safer. File-name matching may affect another process with the same executable name.
-- A game's or application's Terms of Service may restrict external scheduling tools. Check the relevant policy before use.
-- Applying a rule does not guarantee better performance. Validate changes with repeatable frame-time measurements.
+GPU policy changes require administrator privileges and restart the display device; the display may briefly go black. ETW/CSV integrity, window checks, cancellation and crash recovery remain in place.
 
 ## Installation
 
@@ -119,97 +73,6 @@ The NSIS installer is written to:
 ```text
 src-tauri/target/release/bundle/nsis/
 ```
-
-## Usage
-
-1. Launch FrameAnchor and accept the Windows UAC prompt.
-2. Open the **Rules** page.
-3. Select a target from the list of running windows, or create/edit an existing rule.
-4. Choose an affinity mode and CPU priority. Enable advanced I/O or memory priority settings if needed.
-5. Select a matching method:
-   - **Full path**: Matches only the executable at the specified location.
-   - **File name**: Matches the same executable name under any path.
-6. Apply and save the rule.
-7. Keep FrameAnchor running in the background or system tray. The rule is applied when a matching target appears.
-8. Check affinity, priority, and error status on the **Dashboard**.
-
-After FrameAnchor exits, it no longer monitors newly started processes. Settings already applied to a running process generally remain until that process exits.
-
-## Configuration and Data
-
-The configuration file is stored at:
-
-```text
-%APPDATA%\FrameAnchor\config.json
-```
-
-Behavior and compatibility details:
-
-- Rules and settings are stored as JSON.
-- Missing fields in older configurations receive defaults for backward compatibility.
-- If the configuration cannot be parsed, the original file is copied to `config.corrupt.json`, and FrameAnchor starts with defaults.
-- The data directory can be opened directly from the Settings page.
-- The full background maintenance interval can be set to 0.5–5 seconds in the UI. The high-frequency discovery pass remains fixed at 100 ms.
-
-Default settings include:
-
-- Language: Traditional Chinese
-- Start minimized: enabled
-- Close to tray: enabled
-- Start with Windows: disabled
-- Background maintenance interval: 1 second
-- Advanced priority controls: hidden
-
-## GPU Benchmark (Beta)
-
-FrameAnchor includes a GPU benchmark that finds the **logical processor (LP) best suited to handle the selected GPU's driver interrupts**. It cycles the GPU driver's interrupt affinity across LPs, collects frame-times with a measurement tool, and reports the best core and cores that perform poorly, which can be imported into a rule draft in one click.
-
-### How it differs from a general CPU/GPU benchmark
-
-- **Not a graphics benchmark**: It does not compare image quality, scenes, or FPS between GPUs. The workload is a fixed alternating black/white, uncapped, no-vsync render.
-- **Not "which core runs the game fastest"**: It measures which core yields the most stable/highest frame-times when handling GPU interrupts.
-- Each test pins the GPU driver interrupt affinity to a single LP; statistics include Avg/Max/Min/STDEV, 1%/0.1%/0.01%/0.005% lows, and matching percentiles (all using the frame-count slowest-N% algorithm).
-
-### Expected duration
-
-Each tested core takes roughly:
-
-```text
-sample seconds + warm-up seconds + startup wait (5 s) + driver restart/stabilize (~14 s) + margin
-```
-
-Total is approximately `cores × rounds × per-core time`. For example 16 cores, 30 s sample, 3 rounds, roughly 43 minutes. The UI shows an estimate before starting.
-
-### Risk warning
-
-The test repeatedly **disables/enables the selected GPU driver** (disable/enable), which may cause:
-
-- Several seconds of black screen
-- Temporary display dropout or resolution reset
-- Other workloads using the same GPU (including browser hardware acceleration) to pause
-
-**Do not operate the computer after starting**, until the test finishes or is cancelled. The test uses a crash-safe recovery journal; even a crash mid-test restores the pre-test policy on next launch.
-
-### Data and history
-
-- Sessions are stored under `%APPDATA%\FrameAnchor\benchmarks\<session-uuid>\` with `session.json` and per-round `round-<round>-lp-<core>.csv` files.
-- The history list shows date, GPU, API, status, best core, and disk size for each session; details can be opened or deleted (with confirmation).
-- In-flight recovery journal: `%APPDATA%\FrameAnchor\benchmark-recovery.json`; the one-level restore record after an apply: `gpu-restore.json`.
-- History is never deleted automatically.
-
-### Apply and restore semantics
-
-- A test itself **never auto-applies** anything — every session restores the GPU interrupt affinity to its pre-test state.
-- Applying is only available when the result passes the reliability gate (Passed): it needs at least 3 rounds, with the candidate core consistently winning across rounds and showing enough improvement over the runner-up. Sessions with too few rounds or unstable results are marked "Inconclusive" and cannot be applied.
-- After completion you must explicitly press **"Apply best core to GPU"** (with confirmation) to pin interrupt affinity to the best LP.
-- **"Restore previous setting"** returns to the policy before the most recent successful apply (one-level restore record).
-- Both apply and restore confirm and briefly restart the GPU driver again (possible screen flicker).
-
-### Compatibility restriction
-
-- Each completed session stores the **CPU fingerprint** (CPU identity + topology) and the GPU's stable PnP instance ID.
-- Only sessions whose **current CPU fingerprint matches** and whose **GPU is still present** can be applied or imported; incompatible history stays viewable but apply/import is disabled with a reason.
-- If the current CPU hardware no longer matches a recommendation stored on a rule, a stale-hardware warning is shown while the data is preserved.
 
 ## Development and Building
 
@@ -267,24 +130,6 @@ cargo test --manifest-path src-tauri/Cargo.toml
 
 The complete application and its process operations depend on Windows APIs. Changes involving live processes, affinity, priority, CPU Sets, the tray, Task Scheduler, or WebView2 still require manual verification on Windows against a disposable test process.
 
-## Architecture
-
-| Layer | Technology |
-| --- | --- |
-| Desktop framework | Tauri v2 |
-| Frontend | Svelte 5 runes, TypeScript, Vite |
-| Backend | Rust, tokio |
-| Windows integration | `windows` crate and direct Win32 APIs |
-| Internationalization | `svelte-i18n` |
-| Installer | NSIS |
-
-The runtime has two main background tasks:
-
-- **Watcher**: A 100 ms discovery pass plus full maintenance, retries, and status updates at the configured interval.
-- **Usage sampler**: Reads per-logical-processor system usage once per second while the Dashboard needs it and at least one applied process is running.
-
-The original product specification is available in [`PLAN.md`](PLAN.md). When it differs from the current implementation, the code is authoritative.
-
 ## Release Process
 
 Maintainers trigger automated builds and releases by pushing a semantic version tag. The CI workflow validates version consistency across all files, checks the updater signing key, runs frontend type checks and Rust tests, then builds all artifacts:
@@ -314,9 +159,9 @@ Set the private key content as the GitHub Actions secret `TAURI_SIGNING_PRIVATE_
 
 Windows binaries are **not code-signed**. Windows Defender SmartScreen may show a warning on download and first launch. This is expected and does not affect functionality.
 
-## Project Status
+## Architecture
 
-The project is still at an early stage, and APIs, configuration formats, and scheduling behavior may change in later releases. Both the installer and portable editions support automatic update checking and manual updates; the version number is dynamically obtained from the built-in executable metadata.
+Tauri v2, Svelte 5, TypeScript and Rust. The backend constructs topology-derived candidates and captures frametimes through PresentMon. A single operation manager coordinates GPU changes, snapshots, HMAC verification, cancellation and crash recovery. Method version 3 stores complete core evidence in `summary.quick`; legacy `lp` and `bestLp` fields retain their logical-processor meaning.
 
 ## License
 

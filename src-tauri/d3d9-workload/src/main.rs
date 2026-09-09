@@ -12,16 +12,16 @@ use std::process::ExitCode;
 use windows::core::{BOOL, PCWSTR};
 use windows::Win32::Foundation::{HINSTANCE, HMODULE, HWND, LPARAM, LRESULT, WPARAM};
 use windows::Win32::Graphics::Direct3D9::{
-    Direct3DCreate9, D3DCLEAR_TARGET, D3DCREATE_HARDWARE_VERTEXPROCESSING, D3DDEVTYPE_HAL,
-    D3DFMT_UNKNOWN, D3DMULTISAMPLE_NONE, D3DPRESENT_INTERVAL_IMMEDIATE, D3DPRESENT_PARAMETERS,
-    D3DSWAPEFFECT_DISCARD, D3D_SDK_VERSION, IDirect3DDevice9,
+    Direct3DCreate9, IDirect3DDevice9, D3DCLEAR_TARGET, D3DCREATE_HARDWARE_VERTEXPROCESSING,
+    D3DDEVTYPE_HAL, D3DFMT_UNKNOWN, D3DMULTISAMPLE_NONE, D3DPRESENT_INTERVAL_IMMEDIATE,
+    D3DPRESENT_PARAMETERS, D3DSWAPEFFECT_DISCARD, D3D_SDK_VERSION,
 };
 use windows::Win32::Graphics::Gdi::UpdateWindow;
 use windows::Win32::System::LibraryLoader::GetModuleHandleW;
 use windows::Win32::UI::WindowsAndMessaging::{
-    CreateWindowExW, CS_OWNDC, DefWindowProcW, DispatchMessageW, PeekMessageW, RegisterClassW,
-    ShowWindow, TranslateMessage, MSG, PM_REMOVE, SW_SHOW, WM_DESTROY, WM_QUIT, WNDCLASSW,
-    WINDOW_EX_STYLE, WS_OVERLAPPEDWINDOW,
+    CreateWindowExW, DefWindowProcW, DispatchMessageW, PeekMessageW, RegisterClassW, ShowWindow,
+    TranslateMessage, CS_OWNDC, MSG, PM_REMOVE, SW_SHOW, WINDOW_EX_STYLE, WM_DESTROY, WM_QUIT,
+    WNDCLASSW, WS_OVERLAPPEDWINDOW,
 };
 
 struct Options {
@@ -57,19 +57,16 @@ fn parse_args() -> Options {
 }
 
 const CLASS_NAME: &[u16] = &[
-    'F' as u16,
-    'r' as u16,
-    'a' as u16,
-    'm' as u16,
-    'e' as u16,
-    'D' as u16,
-    '3' as u16,
-    'D' as u16,
-    '9' as u16,
-    0,
+    'F' as u16, 'r' as u16, 'a' as u16, 'm' as u16, 'e' as u16, 'D' as u16, '3' as u16, 'D' as u16,
+    '9' as u16, 0,
 ];
 
-unsafe extern "system" fn wnd_proc(hwnd: HWND, msg: u32, wparam: WPARAM, lparam: LPARAM) -> LRESULT {
+unsafe extern "system" fn wnd_proc(
+    hwnd: HWND,
+    msg: u32,
+    wparam: WPARAM,
+    lparam: LPARAM,
+) -> LRESULT {
     if msg == WM_DESTROY {
         std::process::exit(0);
     }
@@ -82,7 +79,10 @@ fn wide(s: &str) -> Vec<u16> {
 
 fn main() -> ExitCode {
     let opts = parse_args();
-    let title = wide(&format!("FrameAnchor D3D9 workload {}x{}", opts.width, opts.height));
+    let title = wide(&format!(
+        "FrameAnchor D3D9 workload {}x{}",
+        opts.width, opts.height
+    ));
 
     unsafe {
         let hmodule = GetModuleHandleW(PCWSTR::null()).unwrap_or(HMODULE(std::ptr::null_mut()));
@@ -158,7 +158,8 @@ fn main() -> ExitCode {
         }
         let device = device.unwrap();
 
-        let frame_ms = if opts.fps_cap > 0 { 1000u64 / opts.fps_cap as u64 } else { 0 };
+        let frame_period = frame_period(opts.fps_cap);
+        let mut next_frame = std::time::Instant::now();
         let mut black = true;
         let mut msg = MSG::default();
         loop {
@@ -170,20 +171,65 @@ fn main() -> ExitCode {
                 }
             }
             let color = if black { 0x00000000u32 } else { 0x00FF_FFFFu32 };
-            if device.Clear(0, std::ptr::null(), D3DCLEAR_TARGET as u32, color, 1.0, 0).is_err() {
+            if device
+                .Clear(0, std::ptr::null(), D3DCLEAR_TARGET as u32, color, 1.0, 0)
+                .is_err()
+            {
                 return ExitCode::from(6);
             }
             if device
-                .Present(std::ptr::null(), std::ptr::null(), HWND::default(), std::ptr::null())
+                .Present(
+                    std::ptr::null(),
+                    std::ptr::null(),
+                    HWND::default(),
+                    std::ptr::null(),
+                )
                 .is_err()
             {
                 // 裝置遺失（Alt-Tab 等）→ 結束，讓 runner 判定失敗
                 return ExitCode::from(7);
             }
             black = !black;
-            if frame_ms > 0 {
-                std::thread::sleep(std::time::Duration::from_millis(frame_ms));
+            if let Some(period) = frame_period {
+                next_frame += period;
+                while let Some(remaining) =
+                    next_frame.checked_duration_since(std::time::Instant::now())
+                {
+                    if remaining > std::time::Duration::from_millis(2) {
+                        std::thread::sleep(remaining - std::time::Duration::from_millis(1));
+                    } else {
+                        std::hint::spin_loop();
+                    }
+                }
+                if next_frame + period < std::time::Instant::now() {
+                    next_frame = std::time::Instant::now();
+                }
             }
         }
+    }
+}
+
+fn frame_period(fps_cap: u32) -> Option<std::time::Duration> {
+    (fps_cap > 0).then(|| {
+        std::time::Duration::from_secs_f64(1.0 / fps_cap as f64)
+            .max(std::time::Duration::from_nanos(1))
+    })
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    #[test]
+    fn high_fps_caps_keep_submillisecond_periods() {
+        assert_eq!(frame_period(0), None);
+        assert_eq!(
+            frame_period(2000).unwrap(),
+            std::time::Duration::from_micros(500)
+        );
+        assert_eq!(
+            frame_period(4000).unwrap(),
+            std::time::Duration::from_micros(250)
+        );
+        assert!(!frame_period(u32::MAX).unwrap().is_zero());
     }
 }

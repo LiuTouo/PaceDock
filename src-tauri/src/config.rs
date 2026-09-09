@@ -346,4 +346,20 @@ mod tests {
         std::fs::set_permissions(&path, perms).unwrap();
         let _ = std::fs::remove_file(&path);
     }
+    #[test]
+    fn saving_general_settings_preserves_disabled_legacy_game_rules() {
+        let raw = r#"{"version":1,"settings":{"language":"zh-TW","startWithWindows":true,"startMinimized":true,"closeToTray":true},"rules":[{"id":"legacy","name":"Game","exePath":"C:/Game.exe","enabled":true,"matchBy":"FullPath","affinity":{"mode":"Custom","cores":[0,1,4]},"priority":"High","advanced":{"ioPriority":"High","memoryPriority":"Normal"}}]}"#;
+        let mut config: Config = serde_json::from_str(raw).unwrap();
+        let rules = serde_json::to_value(&config.rules).unwrap();
+        config.settings.language = "en".into();
+        let path = std::env::temp_dir().join(format!(
+            "frameanchor_preserve_rules_{}.json",
+            uuid::Uuid::new_v4()
+        ));
+        save_to(&path, &config).unwrap();
+        let loaded = load_from(&path).unwrap();
+        assert_eq!(serde_json::to_value(&loaded.rules).unwrap(), rules);
+        assert_eq!(loaded.settings.language, "en");
+        std::fs::remove_file(path).unwrap();
+    }
 }

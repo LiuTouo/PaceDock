@@ -10,6 +10,7 @@ use windows::Win32::System::SystemInformation::GetSystemDirectoryW;
 /// 判斷目前執行檔是否位於 medium-integrity 程序不可寫的受保護目錄
 /// (Program Files 樹)。其他位置(可攜版目錄、使用者目錄)一律視為可寫。
 /// 以 SHGetKnownFolderPath 查詢,不依賴可被使用者環境變數覆蓋的 %ProgramFiles%。
+#[cfg(test)]
 pub fn in_protected_program_dir() -> bool {
     let Ok(exe) = std::env::current_exe() else {
         return false;
@@ -27,13 +28,15 @@ pub fn in_protected_program_dir() -> bool {
     })
 }
 
+#[cfg(test)]
 fn known_folder_path(fid: &windows::core::GUID) -> Result<String, String> {
     use windows::Win32::System::Com::CoTaskMemFree;
     use windows::Win32::UI::Shell::SHGetKnownFolderPath;
 
     unsafe {
         use windows::Win32::UI::Shell::KNOWN_FOLDER_FLAG;
-        let path = SHGetKnownFolderPath(fid, KNOWN_FOLDER_FLAG(0), None).map_err(|e| e.to_string())?;
+        let path =
+            SHGetKnownFolderPath(fid, KNOWN_FOLDER_FLAG(0), None).map_err(|e| e.to_string())?;
         let converted = path.to_string().map_err(|e| e.to_string());
         CoTaskMemFree(Some(path.as_ptr().cast()));
         converted
@@ -43,7 +46,7 @@ fn known_folder_path(fid: &windows::core::GUID) -> Result<String, String> {
 /// %SystemRoot%\System32（以 Win32 API 查詢，不讀環境變數）。
 pub fn system32_dir() -> Result<PathBuf, String> {
     let mut buf = [0u16; 260]; // MAX_PATH
-    // 回傳不含結尾反斜線的路徑長度；0 表示失敗
+                               // 回傳不含結尾反斜線的路徑長度；0 表示失敗
     let len = unsafe { GetSystemDirectoryW(Some(&mut buf)) } as usize;
     if len == 0 || len >= buf.len() {
         return Err("GetSystemDirectoryW 查詢失敗".to_string());

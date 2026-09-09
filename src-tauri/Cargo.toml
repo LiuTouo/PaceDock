@@ -1,7 +1,7 @@
 [package]
 name = "frameanchor"
-version = "0.2.7"
-description = "FrameAnchor - CPU scheduling tool for competitive gaming"
+version = "0.2.8"
+description = "FrameAnchor - GPU physical-core tuning tool"
 edition = "2021"
 rust-version = "1.80"
 

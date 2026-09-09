@@ -1,8 +1,11 @@
-//! 基準測試 runner（Task 2）：單一 GPU 上逐 LP 循環切換驅動中斷親和性，
-//! 用 PresentMon 收集 frametime，統計後找出最佳/嚴重 LP。
+//! GPU 實體核心快速測試：共用策略交易、PresentMon 擷取與回復保護。
+//! 舊 LP 排程僅供既有回歸測試使用。
 //!
 //! 所有會動真實系統的依賴（backend / sleeper / process / cancel）都是注入的
 //! trait，測試用 fake 跑完整流程，不碰真實 GPU 驅動重啟或真實子程序。
+
+#[path = "quick_runner.rs"]
+pub mod quick;
 
 use std::collections::HashMap;
 use std::path::{Path, PathBuf};
@@ -19,9 +22,7 @@ use crate::gpu::{
 use super::assets::{self, BenchmarkAssets};
 use super::env::{self, EnvironmentProbe};
 use super::metrics::{
-    competitive_score, compute_lp_result, confirmation_effect, is_competitive_eligible, median,
-    merge_rounds, parse_presentmon_csv, parse_presentmon_csv_full, robust_candidates,
-    round_medians, severe_lps,
+    compute_lp_result, merge_rounds, parse_presentmon_csv, parse_presentmon_csv_full,
 };
 use super::recovery::{self, RecoveryStage};
 use super::storage;
@@ -32,9 +33,16 @@ use super::window_layout::{
 use super::window_win::{integrity_ok, Rect, WindowIntegritySnapshot, WorkloadWindow};
 use super::{
     cpu_fingerprint_with, BenchmarkConfig, BenchmarkPhase, BenchmarkProgress, CaptureQuality,
-    CpuIdentity, EnvironmentStability, EquivalentSafetyStatus, FpsCapPolicy, LpResult,
-    ReliabilityStatus, ReliabilitySummary, SessionDetail, SessionStatus, SessionSummary,
-    WindowIntegrity, WorkloadKind,
+    CpuIdentity, FpsCapPolicy, LpResult, ReliabilitySummary, SessionDetail, SessionStatus,
+    SessionSummary, WindowIntegrity, WorkloadKind,
+};
+#[cfg(test)]
+use super::{
+    metrics::{
+        competitive_score, confirmation_effect, is_competitive_eligible, median, robust_candidates,
+        round_medians, severe_lps,
+    },
+    EnvironmentStability, EquivalentSafetyStatus, ReliabilityStatus,
 };
 
 /// restart 後額外穩定時間（毫秒）：驅動中斷重新分配後等 GPU 安定
@@ -64,38 +72,52 @@ pub const SCREENING_ROUNDS: u32 = 1;
 /// capture），再由三輪 screening/refinement 證據選出最終 Top 2。
 pub const REFINEMENT_ROUNDS: u32 = 2;
 /// racing refinement 第一輪最多保留的候選數（Top 5）。
+#[cfg(test)]
 pub const MAX_SELECTION_CANDIDATES: usize = 5;
 /// 正式 refinement 最多保留的候選數（Top 3）。
+#[cfg(test)]
 pub const MAX_REFINEMENT_CANDIDATES: usize = 3;
 /// 快速篩選 capture 秒數上限；使用者設定更短時尊重原設定。
+#[cfg(test)]
 pub const QUICK_SCREEN_SAMPLE_SECS: u32 = 10;
 /// 快速篩選 warm-up 秒數上限。
+#[cfg(test)]
 pub const QUICK_SCREEN_WARMUP_SECS: u32 = 3;
 /// racing refinement capture 秒數上限。
+#[cfg(test)]
 pub const RACING_SAMPLE_SECS: u32 = 20;
 /// 確認（confirmation）最少 round 數：前 2 名 finalists 先各測 3 個配對 round。
+#[cfg(test)]
 pub const CONFIRMATION_MIN_ROUNDS: u32 = 3;
 /// 確認（confirmation）最多 round 數：證據不足時最多擴充到 7 個配對 round。
+#[cfg(test)]
 pub const CONFIRMATION_MAX_ROUNDS: u32 = 7;
 /// 前向 + 反向確認的總配對 round 預算（上限 10）。
+#[cfg(test)]
 pub const TOTAL_PAIR_BUDGET: u32 = 10;
 /// 反向驗證最多 round 數；實際上限再受 [`TOTAL_PAIR_BUDGET`] 扣除前向 round 限制。
+#[cfg(test)]
 pub const REVERSE_MAX_ROUNDS: u32 = 5;
 /// 等效判定最低 round 數（至少 5 輪才判定 Equivalent）。
+#[cfg(test)]
 pub const EQUIVALENT_MIN_ROUNDS: u32 = 5;
 /// 前向確認 round 的起始編號（與篩選/refinement 的 round 編號隔離，防止證據重用）。
 pub const CONFIRMATION_ROUND_BASE: u32 = 100;
 /// 反向驗證 round 的起始編號（獨立 namespace，避免與前向確認共用檔案/round）。
 pub const REVERSE_ROUND_BASE: u32 = 200;
 /// 等效安全驗證的 AB/BA 配對 round 數（3 組 = 6 captures）。
+#[cfg(test)]
 pub const EQUIVALENT_VALIDATION_ROUNDS: u32 = 3;
 /// 等效安全驗證 round 的起始編號（獨立 namespace，不混入原確認資料）。
 pub const EQUIVALENT_VALIDATION_ROUND_BASE: u32 = 400;
 /// 最多 finalists 數（使用者決策：Top 2 only）。
+#[cfg(test)]
 pub const MAX_FINALISTS: usize = 2;
 /// bootstrap 穩定性區間的下百分位（第 5 百分位）；小型樣本決策啟發式，非信賴區間。
+#[cfg(test)]
 pub const INTERVAL_LOW_PERCENTILE: f64 = 0.05;
 /// bootstrap 穩定性區間的上百分位（第 95 百分位）；小型樣本決策啟發式，非信賴區間。
+#[cfg(test)]
 pub const INTERVAL_HIGH_PERCENTILE: f64 = 0.95;
 /// capture 完整性：觀測時長（TimeInSeconds 跨度）須 ≥ sample_secs 的此比例。
 pub const CAPTURE_DURATION_MIN_RATIO: f64 = 0.95;
@@ -596,7 +618,12 @@ fn capture_step(
     buffer: u32,
 ) -> StepOutcome {
     let pct = (done * 100 / total_tests.max(1)).min(100);
-    let eta = eta_secs(&ctx.config, total_tests, done);
+    let eta = detail
+        .summary
+        .quick
+        .as_ref()
+        .map(|q| super::physical::remaining_secs(&q.schedule, q.candidates.len(), done))
+        .or_else(|| eta_secs(&ctx.config, total_tests, done));
     emit(
         ctx,
         detail,
@@ -615,7 +642,25 @@ fn capture_step(
     let new_policy = AffinityPolicy {
         instance_id: instance.to_string(),
         device_policy: RegistryValueSnapshot::dword(DEVICE_POLICY_SINGLE_PROCESSOR),
-        assignment_set_override: RegistryValueSnapshot::binary(single_lp_mask_bytes(lp)),
+        assignment_set_override: RegistryValueSnapshot::binary(
+            if let Some(quick) = &detail.summary.quick {
+                let Some(target) = quick
+                    .candidates
+                    .iter()
+                    .find(|t| t.lp_indices.first() == Some(&lp))
+                else {
+                    return StepOutcome::Break(TerminalReason::Error(
+                        codes::BENCHMARK_SESSION_INCOMPATIBLE.into(),
+                    ));
+                };
+                match super::physical::mask(target, &ctx.topo) {
+                    Ok(bytes) => bytes,
+                    Err(e) => return StepOutcome::Break(TerminalReason::Error(e)),
+                }
+            } else {
+                single_lp_mask_bytes(lp)
+            },
+        ),
     };
     if let Err(_e) = ctx.backend.write_affinity_policy(&new_policy) {
         return StepOutcome::Break(TerminalReason::Error(codes::GPU_APPLY_FAILED.to_string()));
@@ -637,6 +682,13 @@ fn capture_step(
         recovery::advance_to_at(&ctx.journal_path, &j, RecoveryStage::DeviceRestarted)
     }) {
         return StepOutcome::Break(TerminalReason::Error(e));
+    }
+
+    if detail.summary.quick.is_some() {
+        match ctx.backend.read_affinity_policy(instance) {
+            Ok(actual) if crate::gpu::policy_matches(&new_policy, &actual) => {}
+            _ => return StepOutcome::Break(TerminalReason::Error(codes::GPU_APPLY_FAILED.into())),
+        }
     }
 
     // 3) 啟動 workload + prepare + warmup + capture：統一 attempt loop。
@@ -986,10 +1038,8 @@ fn calibration_capture(
 }
 
 /// 某 round 所有 LP 的 frametime 中位數（漂移偵測用）。
-fn round_median_frametime(
-    round_csvs: &RoundCsvs,
-    round: u32,
-) -> Option<f64> {
+#[cfg(test)]
+fn round_median_frametime(round_csvs: &RoundCsvs, round: u32) -> Option<f64> {
     let mut all: Vec<f64> = Vec::new();
     for rounds in round_csvs.values() {
         if let Some(csv) = rounds.get(&round) {
@@ -1010,7 +1060,20 @@ fn round_median_frametime(
 /// 3..=7 前向確認 →（若 RunnerUpReversal）反向驗證（min 3、max min(5,10−forward)）。
 /// 成功 / 取消 / 失敗都會：停止 owned 子程序 → 還原原始策略並重啟 GPU →
 /// 還原驗證成功才清除日誌 → 原子寫入最終 session。
+#[cfg(not(test))]
 pub fn run_benchmark(ctx: &mut RunContext) -> RunResult {
+    if ctx.config.method_version != super::physical::METHOD_VERSION {
+        return abort(ctx, codes::BENCHMARK_INVALID_CONFIG.into());
+    }
+    quick::run(ctx)
+}
+
+// 舊排程僅保留作為原有 capture、取消與回復回歸測試的測試驅動器。
+#[cfg(test)]
+pub fn run_benchmark(ctx: &mut RunContext) -> RunResult {
+    if ctx.config.method_version == super::physical::METHOD_VERSION {
+        return quick::run(ctx);
+    }
     // 前置驗證
     let (instance, gpu_name) = match pre_flight(ctx) {
         Ok(v) => v,
@@ -1549,6 +1612,7 @@ pub fn run_benchmark(ctx: &mut RunContext) -> RunResult {
 /// 該 round 的 frametime 中位數相對跨 round 參考偏離 >5% → 覆寫重跑（最多
 /// [`env::MAX_DRIFT_RETRIES`] 次）；重跑上限用盡 → BENCHMARK_ENV_UNSTABLE（fail closed）。
 #[allow(clippy::too_many_arguments)]
+#[cfg(test)]
 fn capture_round_with_drift(
     ctx: &mut RunContext,
     instance: &str,
@@ -1685,7 +1749,14 @@ pub fn validate_config(
     if config.gpu_instance_id.is_none() {
         return Err(codes::BENCHMARK_INVALID_CONFIG.to_string());
     }
-    if config.sample_secs == 0 {
+    if config.fps_cap > 10000
+        || config.sample_secs == 0
+        || config.sample_secs > 120
+        || config.warm_up_secs > 60
+        || config.retest_sample_secs == 0
+        || config.retest_sample_secs > 120
+        || config.retest_warm_up_secs > 60
+    {
         return Err(codes::BENCHMARK_INVALID_CONFIG.to_string());
     }
     // 強制視窗模式：所有 benchmark 與 Equivalent validation 皆拒絕 fullscreen=true。
@@ -1694,7 +1765,11 @@ pub fn validate_config(
     }
     // 新排程固定為 1 篩選 + 2 refinement + 3..=7 前向確認，與 `repetitions` 欄位無關；
     // 該欄位保留供舊 session 反序列化，新 run 一律忽略。
-    if effective_lps(config, topo).is_empty() {
+    if (config.method_version == super::physical::METHOD_VERSION
+        && super::physical::select(topo, &config.candidate_core_ids).is_err())
+        || (config.method_version != super::physical::METHOD_VERSION
+            && effective_lps(config, topo).is_empty())
+    {
         return Err(codes::BENCHMARK_INVALID_CONFIG.to_string());
     }
     if config.workload == WorkloadKind::Vulkan && config.vulkan_args.is_empty() {
@@ -1761,6 +1836,7 @@ pub fn effective_lps(config: &BenchmarkConfig, topo: &crate::topology::Topology)
 /// round r 的起始位置 = `r % n`（n = LP 數），方向 = r 為奇數時遞減、偶數遞增。
 /// 每個 round 都是完整排列（不省略、不重複），且相鄰 round 的起始位置與方向
 /// 皆改變，避免固定順序造成的系統性偏誤。
+#[cfg(test)]
 pub fn round_order(round: u32, lps: &[u32]) -> Vec<u32> {
     let mut v = lps.to_vec();
     v.sort_unstable();
@@ -2353,9 +2429,8 @@ fn eta_secs(config: &BenchmarkConfig, total_tests: u32, done: u32) -> Option<u64
 
 /// 合併各 round CSV 並計算每 LP 指標。
 /// 任一 LP 的 CSV 缺失/空/無效 → 回傳 (已算出的部分結果, Some(錯誤碼))。
-fn compute_session_results(
-    round_csvs: &RoundCsvs,
-) -> (Vec<LpResult>, Option<String>) {
+#[cfg(test)]
+fn compute_session_results(round_csvs: &RoundCsvs) -> (Vec<LpResult>, Option<String>) {
     let mut lps: Vec<u32> = round_csvs.keys().copied().collect();
     lps.sort_unstable();
     let mut out = Vec::new();
@@ -2368,6 +2443,7 @@ fn compute_session_results(
     (out, None)
 }
 
+#[cfg(test)]
 fn compute_lp_all_rounds(lp: u32, rounds: &HashMap<u32, CapturedCsv>) -> Result<LpResult, String> {
     let mut per_round: Vec<Vec<f64>> = Vec::new();
     let mut round_nums: Vec<u32> = rounds.keys().copied().collect();
@@ -2477,6 +2553,7 @@ fn sha256_hex(data: &[u8]) -> String {
 type RoundCsvs = HashMap<u32, HashMap<u32, CapturedCsv>>;
 
 /// 單一 (round, lp) 的 LpResult（供逐 round 勝者計算；CSV 不可讀 → None）
+#[cfg(test)]
 fn compute_lp_single_round(lp: u32, csv: &CapturedCsv) -> Option<LpResult> {
     csv.read()
         .ok()
@@ -2485,6 +2562,7 @@ fn compute_lp_single_round(lp: u32, csv: &CapturedCsv) -> Option<LpResult> {
 
 /// 改善百分比：`(candidate - runner_up) / runner_up * 100`。
 /// 亞軍不可得、非有限、或 `runner_up <= 0` → None（視為未達門檻）。
+#[cfg(test)]
 fn improvement_pct(candidate: Option<f64>, runner_up: Option<f64>) -> Option<f64> {
     let c = candidate?;
     let r = runner_up?;
@@ -2500,13 +2578,17 @@ fn improvement_pct(candidate: Option<f64>, runner_up: Option<f64>) -> Option<f64
 }
 
 /// 複合分數優勢門檻（%）：穩健候選的跨 round 中位分數須高於亞軍至少此值才算 Passed。
+#[cfg(test)]
 pub const COMPOSITE_ADVANTAGE_MIN_PCT: f64 = 0.5;
 /// 護欄：候選 Avg FPS / 1% low 相較亞軍最多允許落後（%，負值 = 允許小幅落後）。
+#[cfg(test)]
 pub const GUARDRAIL_MAX_DEFICIT_PCT: f64 = -0.5;
 /// 護欄：候選 spike rate 相較亞軍最多允許超出（絕對百分點）。
+#[cfg(test)]
 pub const SPIKE_GUARD_PP: f64 = 0.5;
 
 /// 由 per-round LpResult map 取某指標的逐 round 中位數（缺/非有限 → 略過）。
+#[cfg(test)]
 fn median_of_metric(
     per_round: &HashMap<u32, LpResult>,
     pick: fn(&LpResult) -> Option<f64>,
@@ -2520,6 +2602,7 @@ fn median_of_metric(
 }
 
 /// 逐 LP、逐 round 的 competitive-eligible 單 round 結果（僅納入 rounds 0..round_count）。
+#[cfg(test)]
 fn build_per_round(
     round_csvs: &RoundCsvs,
     round_count: u32,
@@ -2541,11 +2624,8 @@ fn build_per_round(
 
 /// 由 rounds 0..round_count 的完整（competitive-eligible）分數選出前 k 名候選。
 /// 僅納入該 round 數皆完整的 LP；少於 k 個完整候選 → 回傳空（呼叫端跳過後續階段）。
-fn select_top_candidates(
-    round_csvs: &RoundCsvs,
-    round_count: u32,
-    k: usize,
-) -> Vec<u32> {
+#[cfg(test)]
+fn select_top_candidates(round_csvs: &RoundCsvs, round_count: u32, k: usize) -> Vec<u32> {
     let per_round = build_per_round(round_csvs, round_count);
     let mut eligible: Vec<u32> = per_round
         .iter()
@@ -2582,6 +2662,7 @@ fn select_top_candidates(
 
 /// 確認階段逐 round 的 (candidate, runner) 單 round 結果（round 編號由 `base_round`
 /// 起算，前向與反向驗證各自獨立 namespace）。任一 round 缺 CSV/不可算 → None。
+#[cfg(test)]
 fn confirmation_pairs(
     round_csvs: &RoundCsvs,
     candidate: u32,
@@ -2606,6 +2687,7 @@ fn confirmation_pairs(
 
 /// 逐確認 round 的配對效應：候選相較亞軍的「有界 log-ratio 確認複合分數」。
 /// 任一 round 缺完整（非有限 / ≤0）指標 → None（fail closed，非中性分）。
+#[cfg(test)]
 fn confirmation_effects(pairs: &[(LpResult, LpResult)]) -> Option<Vec<f64>> {
     pairs
         .iter()
@@ -2621,6 +2703,7 @@ fn confirmation_effects(pairs: &[(LpResult, LpResult)]) -> Option<Vec<f64>> {
 /// 這**不是**統計信賴區間、也不宣稱 90% 覆蓋率：n=3..=7 太小，無法支持任何
 /// 形式化顯著性宣稱。它是小型樣本的決策啟發式，只提供「超越 / 可忽略 / 未定」
 /// 三分類用的穩定性量度。
+#[cfg(test)]
 pub fn paired_bootstrap_interval(effects: &[f64]) -> (f64, f64, f64) {
     let k = effects.len();
     assert!(k > 0, "paired_bootstrap_interval 需要至少一個效應值");
@@ -2653,6 +2736,7 @@ pub fn paired_bootstrap_interval(effects: &[f64]) -> (f64, f64, f64) {
 
 /// 確認階段的逐 round 護欄（候選 vs 亞軍，跨確認 round 中位數）。
 /// 回傳 (Avg FPS 優勢 %, 1% low 優勢 %, spike rate 差 pp)。
+#[cfg(test)]
 fn confirmation_guardrails(
     pairs: &[(LpResult, LpResult)],
     base_round: u32,
@@ -2681,6 +2765,7 @@ fn confirmation_guardrails(
 }
 
 /// 護欄是否通過（候選不得在 Avg FPS / 1% low 明顯倒退，spike 不得明顯變差）。
+#[cfg(test)]
 fn guardrails_ok(avg_adv: Option<f64>, p1_adv: Option<f64>, spike_delta: Option<f64>) -> bool {
     avg_adv.is_some_and(|v| v >= GUARDRAIL_MAX_DEFICIT_PCT)
         && p1_adv.is_some_and(|v| v >= GUARDRAIL_MAX_DEFICIT_PCT)
@@ -2689,6 +2774,7 @@ fn guardrails_ok(avg_adv: Option<f64>, p1_adv: Option<f64>, spike_delta: Option<
 
 /// 前向確認的判定訊號。
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
+#[cfg(test)]
 enum ForwardVerdict {
     /// 證據尚未達決定性，繼續下一確認 round。
     Continue,
@@ -2710,6 +2796,7 @@ enum ForwardVerdict {
 /// 任何 K 都另需 bootstrap 穩定性區間下界 > 門檻，且護欄未倒退。
 /// 這是小型樣本的決策啟發式（decision heuristic），**不**宣稱形式化顯著性；
 /// 區間下界只是必要條件之一，不能單獨觸發 Passed。
+#[cfg(test)]
 fn confirmation_passed(effects: &[f64], interval_lower: f64, rails_ok: bool) -> bool {
     if !rails_ok {
         return false;
@@ -2731,9 +2818,11 @@ fn confirmation_passed(effects: &[f64], interval_lower: f64, rails_ok: bool) -> 
 }
 
 /// 單一 (a vs b) 配對的完整證據：(effects, avg_adv, p1_adv, spike_delta)。
+#[cfg(test)]
 type PairEvidence = (Vec<f64>, Option<f64>, Option<f64>, Option<f64>);
 
 /// 任一 round 缺完整 competitive-eligible 分數 → None。
+#[cfg(test)]
 fn pair_evidence(
     round_csvs: &RoundCsvs,
     a: u32,
@@ -2750,6 +2839,7 @@ fn pair_evidence(
 /// 等效判定所需的 raw median evidence（% 或 pp）。由逐 round raw metrics 的中位數
 /// 差異計算（**不**使用 screening/refinement 的 competitive_score，也不使用 bootstrap）。
 #[derive(Clone, Copy, Debug, Default, PartialEq)]
+#[cfg(test)]
 struct EquivalentEvidence {
     avg_improvement_pct: Option<f64>,
     p1_improvement_pct: Option<f64>,
@@ -2760,6 +2850,7 @@ struct EquivalentEvidence {
 
 /// 由 (candidate, runner) 逐 round raw metrics 計算某指標的兩側中位數。
 /// 任一側缺值 → (None, None)。
+#[cfg(test)]
 fn pair_metric_medians(
     pairs: &[(LpResult, LpResult)],
     pick: fn(&LpResult) -> Option<f64>,
@@ -2774,6 +2865,7 @@ fn pair_metric_medians(
 }
 
 /// 絕對百分點差（兩側皆有限才有值）。
+#[cfg(test)]
 fn delta_pp(a: Option<f64>, b: Option<f64>) -> Option<f64> {
     match (a, b) {
         (Some(x), Some(y)) if x.is_finite() && y.is_finite() => Some(x - y),
@@ -2782,6 +2874,7 @@ fn delta_pp(a: Option<f64>, b: Option<f64>) -> Option<f64> {
 }
 
 /// 計算等效判定的 raw median evidence。
+#[cfg(test)]
 fn equivalent_evidence(pairs: &[(LpResult, LpResult)]) -> EquivalentEvidence {
     let (c_avg, r_avg) = pair_metric_medians(pairs, |r| r.avg_fps);
     let (c_p1, r_p1) = pair_metric_medians(pairs, |r| r.p1_low);
@@ -2799,6 +2892,7 @@ fn equivalent_evidence(pairs: &[(LpResult, LpResult)]) -> EquivalentEvidence {
 
 /// 等效判定的中位數差異門檻：avg ≤0.5%、p1 ≤1.5%、p01 ≤2.0%、
 /// MAD ≤0.5pp、spike ≤0.10pp（全部取絕對值）。
+#[cfg(test)]
 fn equivalent_medians_ok(ev: &EquivalentEvidence) -> bool {
     ev.avg_improvement_pct.is_some_and(|v| v.abs() <= 0.5)
         && ev.p1_improvement_pct.is_some_and(|v| v.abs() <= 1.5)
@@ -2808,6 +2902,7 @@ fn equivalent_medians_ok(ev: &EquivalentEvidence) -> bool {
 }
 
 /// 相對差（任一方向）是否超過 threshold_pct。
+#[cfg(test)]
 fn relative_diverges_pct(a: Option<f64>, b: Option<f64>, threshold_pct: f64) -> bool {
     match (a, b) {
         (Some(x), Some(y)) => {
@@ -2819,6 +2914,7 @@ fn relative_diverges_pct(a: Option<f64>, b: Option<f64>, threshold_pct: f64) -> 
 }
 
 /// spike rate 絕對差（pp）是否超過 threshold_pp。
+#[cfg(test)]
 fn spike_diverges_pp(a: Option<f64>, b: Option<f64>, threshold_pp: f64) -> bool {
     match (a, b) {
         (Some(x), Some(y)) if x.is_finite() && y.is_finite() => (x - y).abs() > threshold_pp,
@@ -2828,6 +2924,7 @@ fn spike_diverges_pp(a: Option<f64>, b: Option<f64>, threshold_pp: f64) -> bool 
 
 /// 單輪嚴重退步禁制：任何單輪（任一方向）出現 avg 絕對差 >3%、p1 絕對差 >5%、
 /// 或 spike 絕對差 >0.5pp → 禁止 Equivalent。
+#[cfg(test)]
 fn equivalent_per_round_forbidden(pairs: &[(LpResult, LpResult)]) -> bool {
     pairs.iter().any(|(c, r)| {
         relative_diverges_pct(c.avg_fps, r.avg_fps, 3.0)
@@ -2840,6 +2937,7 @@ fn equivalent_per_round_forbidden(pairs: &[(LpResult, LpResult)]) -> bool {
 /// 出現 avg 改善 < -3%、p1 改善 < -5%、或 spike 增加 > 0.5pp → true（明顯退步，拒絕）。
 /// 與 [`equivalent_per_round_forbidden`]（前向 Equivalent 的雙向 abs）分開：
 /// 這裡只拒絕「更差」方向，單輪明顯改善不誤拒。
+#[cfg(test)]
 fn equivalent_validation_regressed(pairs: &[(LpResult, LpResult)]) -> bool {
     pairs.iter().any(|(selected, reference)| {
         let avg_worse =
@@ -2852,12 +2950,14 @@ fn equivalent_validation_regressed(pairs: &[(LpResult, LpResult)]) -> bool {
 }
 
 /// 是否判定為 Equivalent：中位數差異全落在門檻內，且無任何單輪嚴重退步。
+#[cfg(test)]
 fn equivalent_finalists(pairs: &[(LpResult, LpResult)]) -> bool {
     equivalent_medians_ok(&equivalent_evidence(pairs)) && !equivalent_per_round_forbidden(pairs)
 }
 
 /// 等效安全驗證的中位數門檻（單側：selected 不得比 reference 明顯更差）。
 /// avg ≥ −0.5%、p1 ≥ −1%、p01 ≥ −2%、MAD 增加 ≤0.5pp、spike 增加 ≤0.10pp。
+#[cfg(test)]
 fn equivalent_validation_medians_ok(ev: &EquivalentEvidence) -> bool {
     ev.avg_improvement_pct.is_some_and(|v| v >= -0.5)
         && ev.p1_improvement_pct.is_some_and(|v| v >= -1.0)
@@ -2868,12 +2968,14 @@ fn equivalent_validation_medians_ok(ev: &EquivalentEvidence) -> bool {
 
 /// Equivalent 在完成至少 [`EQUIVALENT_MIN_ROUNDS`] 輪（K=5、6、7）且雙向 decisive win
 /// 皆未通過時才評估；K<5 只做 decisive win 判定。
+#[cfg(test)]
 fn equivalent_eligible(rounds: u32) -> bool {
     rounds >= EQUIVALENT_MIN_ROUNDS
 }
 
 /// 反向驗證 round 上限 = min([`REVERSE_MAX_ROUNDS`], [`TOTAL_PAIR_BUDGET`] − forward_rounds)。
 /// 前向 ≤7 → 至少剩 3 個 pair；總 pair（前向 + 反向）≤ 10。
+#[cfg(test)]
 fn reverse_max_rounds(forward_rounds: u32) -> u32 {
     REVERSE_MAX_ROUNDS.min(TOTAL_PAIR_BUDGET.saturating_sub(forward_rounds))
 }
@@ -2883,6 +2985,7 @@ fn reverse_max_rounds(forward_rounds: u32) -> u32 {
 /// - RunnerUpReversal：亞軍以「相同、反相」criteria 決定性勝出（不直接驗證亞軍）。
 /// - Equivalent：至少 5 輪且雙方皆未 decisive win，且 raw median 差異落在等效門檻內。
 /// - 其餘 → Continue（續跑至上限後 Inconclusive）。
+#[cfg(test)]
 fn evaluate_forward(
     round_csvs: &RoundCsvs,
     candidate: u32,
@@ -2938,6 +3041,7 @@ fn evaluate_forward(
 /// `confirmation_rounds` 為前向確認完成的 round 數（3..=7）。
 /// `forward_verdict`/reverse 參數記錄前向與反向 phase 的判定與證據（不重用資料）。
 #[allow(clippy::too_many_arguments)]
+#[cfg(test)]
 fn compute_reliability(
     round_csvs: &RoundCsvs,
     results: &[LpResult],
@@ -3089,6 +3193,7 @@ fn compute_reliability(
 }
 
 /// ForwardVerdict → 字串（ReliabilitySummary.forward_verdict）。
+#[cfg(test)]
 fn forward_verdict_str(v: Option<ForwardVerdict>) -> String {
     match v {
         Some(ForwardVerdict::CandidatePassed) => "passed".to_string(),
@@ -3165,6 +3270,9 @@ fn cleanup_run(ctx: &mut RunContext) -> bool {
     }
     let mut restored = true;
     if let Some(baseline) = &ctx.baseline {
+        if recovery::mark_restore_needed_at(&ctx.journal_path, baseline).is_err() {
+            return false;
+        }
         if let Err(e) = restore_snapshot(ctx.backend.as_ref(), ctx.sleeper.as_ref(), baseline) {
             restored = false;
             log::error!("基準測試終結還原失敗: {e}；保留還原日誌供啟動重試");
@@ -3172,7 +3280,7 @@ fn cleanup_run(ctx: &mut RunContext) -> bool {
     }
     // 3) 還原驗證成功才清除日誌（Task 1 崩潰還原保證不被削弱）
     if restored {
-        let _ = recovery::clear_at(&ctx.journal_path);
+        restored = recovery::clear_at(&ctx.journal_path).is_ok();
     }
     restored
 }
@@ -3233,6 +3341,16 @@ fn terminal(
     recommended: Vec<u32>,
 ) -> RunResult {
     let restored = cleanup_run(ctx);
+    let status = if !restored {
+        SessionStatus::Failed
+    } else {
+        status
+    };
+    let mut error = if !restored {
+        Some(codes::BENCHMARK_RECOVERY_REQUIRED.to_string())
+    } else {
+        error
+    };
     // 4) 組最終 session 並原子寫入
     detail.summary.status = status;
     detail.summary.finished_at = Some(chrono::Local::now().to_rfc3339());
@@ -3252,7 +3370,14 @@ fn terminal(
         ctx.capture_quality.overflowed_present_events;
     detail.summary.capture_quality.etw_events_lost = ctx.capture_quality.etw_events_lost;
     detail.summary.capture_quality.integrity_passed = status == SessionStatus::Completed;
-    let _ = storage::save_session_at(&ctx.storage_root, &detail);
+    let mut status = status;
+    if storage::save_session_at(&ctx.storage_root, &detail).is_err() {
+        status = SessionStatus::Failed;
+        error = Some(codes::BENCHMARK_STORAGE_FAILED.into());
+        detail.summary.status = status;
+        detail.summary.error = error.clone();
+        detail.summary.capture_quality.integrity_passed = false;
+    }
     // 5) 最終 progress。取消時以取消專用階段收尾（完成紀錄），讓前端取消進度
     // 推到 100；其餘維持原 benchmark finalizing 事件（不改既有語意）。
     if status == SessionStatus::Cancelled {
@@ -3285,6 +3410,7 @@ fn require_journal(path: &Path) -> Result<recovery::RecoveryJournal, String> {
 }
 
 /// 等效安全驗證的最終結果（供 manager 寫入 `EquivalentSafetyValidation`）。
+#[cfg(test)]
 pub struct EquivalentValidationOutcome {
     pub status: EquivalentSafetyStatus,
     pub rounds: u32,
@@ -3299,6 +3425,7 @@ pub struct EquivalentValidationOutcome {
     pub capture_quality: CaptureQuality,
 }
 
+#[cfg(test)]
 impl EquivalentValidationOutcome {
     #[allow(clippy::too_many_arguments)]
     fn from_evidence(
@@ -3327,6 +3454,7 @@ impl EquivalentValidationOutcome {
 }
 
 /// 等效驗證 panic 的清理與穩定終態。
+#[cfg(test)]
 pub fn equivalent_panic_failure(ctx: &mut RunContext) -> EquivalentValidationOutcome {
     let restored = std::panic::catch_unwind(std::panic::AssertUnwindSafe(|| cleanup_run(ctx)))
         .unwrap_or(false);
@@ -3344,6 +3472,7 @@ pub fn equivalent_panic_failure(ctx: &mut RunContext) -> EquivalentValidationOut
 /// 等效安全驗證：3 組新鮮 AB/BA 配對（共 6 captures，round 400..402）比較
 /// `selected_lp` 與 `reference_lp`（目前鎖定核心），沿用既有的 capture 完整性、
 /// 環境穩定性、漂移重跑、取消、清理與策略還原。不混入原確認資料，也不寫 session。
+#[cfg(test)]
 pub fn run_equivalent_validation(
     ctx: &mut RunContext,
     selected_lp: u32,
@@ -3545,6 +3674,20 @@ fn emit(
 ) {
     let (phase, phase_round) = progress_phase(stage, round);
     let progress = BenchmarkProgress {
+        target: if stage == "calibrating" {
+            None
+        } else {
+            detail
+                .summary
+                .quick
+                .as_ref()
+                .and_then(|q| {
+                    q.candidates
+                        .iter()
+                        .find(|t| t.lp_indices.first().copied() == lp)
+                })
+                .cloned()
+        },
         session_id: detail.summary.id.clone(),
         stage: stage.to_string(),
         round,
@@ -3565,6 +3708,7 @@ fn emit(
 /// 不碰 `percentage`（維持 benchmark 進度既有單調語意）。百分比 0..100 單調。
 fn emit_cancel(ctx: &mut RunContext, stage: &str, progress: u32) {
     let p = BenchmarkProgress {
+        target: None,
         session_id: ctx.session_id.clone(),
         stage: "cancelling".to_string(),
         round: None,
@@ -4613,7 +4757,11 @@ mod tests {
     fn run_capture_fails_closed_when_stale_csv_cannot_be_removed() {
         let root = temp_root("stale_lock");
         let csv = root.join("out.csv");
-        std::fs::write(&csv, "Application,ProcessID,msBetweenPresents\n\"w\",1,10.0\n").unwrap();
+        std::fs::write(
+            &csv,
+            "Application,ProcessID,msBetweenPresents\n\"w\",1,10.0\n",
+        )
+        .unwrap();
 
         let backend = Arc::new(FakeBackend::new(vec![device(GPU_A)]));
         let processes = Arc::new(FakeProcessRunner::new());
@@ -4646,10 +4794,11 @@ mod tests {
                 std::fs::remove_file(&csv).is_err(),
                 "測試前提：share_mode(1) 的 handle 應鎖住刪除"
             );
-            let err = run_capture(&mut ctx, 0, 1, 999, &csv, 1, 0, 8192, 1, Rect::default())
-                .unwrap_err();
+            let err =
+                run_capture(&mut ctx, 0, 1, 999, &csv, 1, 0, 8192, 1, Rect::default()).unwrap_err();
             assert_eq!(
-                err, codes::BENCHMARK_CAPTURE_MISSING,
+                err,
+                codes::BENCHMARK_CAPTURE_MISSING,
                 "鎖定的 stale CSV 必須 fail closed"
             );
         }
@@ -8262,5 +8411,235 @@ mod tests {
         assert_eq!(err, codes::BENCHMARK_WINDOW_INTEGRITY);
         assert!(!wc.center_requested.load(Ordering::SeqCst));
         let _ = std::fs::remove_dir_all(&root);
+    }
+    #[test]
+    fn quick_physical_captures_and_authenticated_apply_use_whole_cores() {
+        use crate::benchmark::{
+            manager::{core_apply::tested_target, BenchmarkManager},
+            physical,
+        };
+        let root = temp_root("quick_physical_full");
+        let journal = root.join("journal.json");
+        let backend = Arc::new(FakeBackend::new(vec![device(GPU_A)]));
+        let baseline = AffinityPolicy {
+            instance_id: GPU_A.into(),
+            device_policy: RegistryValueSnapshot::dword(4),
+            assignment_set_override: RegistryValueSnapshot::binary(vec![0x04, 0]),
+        };
+        backend.set_policy(baseline.clone());
+        let processes = Arc::new(FakeProcessRunner::new());
+        for lp in [0, 2, 4] {
+            processes
+                .presentmon_csv_by_lp
+                .lock()
+                .unwrap()
+                .insert(lp, csv_for_lp(lp));
+        }
+        let mut config = base_config();
+        config.method_version = physical::METHOD_VERSION;
+        config.candidate_lps.clear();
+        config.sample_secs = 10;
+        config.warm_up_secs = 3;
+        let observed = Arc::new(std::sync::Mutex::new(Vec::new()));
+        let seen = observed.clone();
+        let gpu = backend.clone();
+        let mut ctx = build_ctx(
+            &root,
+            backend.clone(),
+            processes.clone(),
+            Arc::new(FakeCancel::new()),
+            Arc::new(NoopSleeper),
+            config,
+            &journal,
+            Some(Box::new(move |p| {
+                if p.stage == "collecting" {
+                    seen.lock()
+                        .unwrap()
+                        .push((p.target.clone(), gpu.current_policy(GPU_A)));
+                }
+            })),
+        );
+        ctx.topo = build_topology(vec![
+            (vec![0, 1], 0, true),
+            (vec![2, 3], 0, true),
+            (vec![4, 63], 0, true),
+        ]);
+        let result = run_benchmark(&mut ctx);
+        assert_eq!(
+            result.status,
+            SessionStatus::Completed,
+            "{:?}",
+            result.error
+        );
+        let q = result.detail.summary.quick.as_ref().unwrap();
+        assert_eq!(q.screening.len(), 3);
+        assert_eq!(q.retest.len(), 2);
+        assert_eq!(result.detail.results.len(), 2);
+        assert_eq!(result.detail.confirmation_results.len(), 0);
+        assert_eq!(result.detail.summary.best_lp, None);
+        assert_eq!(result.detail.summary.capture_quality.total_captures, 5);
+        assert_eq!(backend.restart_count(), 6); // 5 captures + restoration
+        assert_eq!(q.screening_order, physical::shuffled(&[0, 1, 2], q.seed));
+        let expected: Vec<_> = q
+            .screening_order
+            .iter()
+            .rev()
+            .filter(|id| q.screening.iter().take(2).any(|r| r.target.core_id == **id))
+            .copied()
+            .collect();
+        assert_eq!(q.retest_order, expected);
+        assert_eq!(backend.current_policy(GPU_A), baseline);
+        assert!(!journal.exists());
+        for (target, policy) in observed.lock().unwrap().iter() {
+            let target = target.as_ref().expect("core target on progress");
+            assert_eq!(
+                policy.assignment_set_override.bytes,
+                Some(physical::mask(target, &ctx.topo).unwrap())
+            );
+        }
+        let detail = storage::get_at_verified(&ctx.storage_root, &ctx.session_id).unwrap();
+        let selected = q.retest[1].target.core_id; // runner-up is also selectable
+        assert!(tested_target(&detail, &ctx.topo, &ctx.cpu_identity, selected).is_ok());
+        let manager = BenchmarkManager::new(backend.clone());
+        let restore = root.join("restore.json");
+        manager
+            .apply_core_at(
+                &ctx.topo,
+                &ctx.cpu_identity,
+                GPU_A,
+                selected,
+                Some(&ctx.session_id),
+                &ctx.storage_root,
+                &journal,
+                &restore,
+            )
+            .unwrap();
+        assert_eq!(
+            backend.current_policy(GPU_A).assignment_set_override.bytes,
+            Some(physical::mask(&q.retest[1].target, &ctx.topo).unwrap())
+        );
+        crate::benchmark::manager::restore_previous_affinity(
+            backend.as_ref(),
+            &NoopSleeper,
+            &restore,
+        )
+        .unwrap();
+        assert_eq!(backend.current_policy(GPU_A), baseline);
+        let mut changed = ctx.topo.clone();
+        changed.physical_cores[0].lp_indices = vec![0];
+        assert!(tested_target(&detail, &changed, &ctx.cpu_identity, selected).is_err());
+        let mut legacy = detail.clone();
+        legacy.summary.quick = None;
+        assert!(tested_target(&legacy, &ctx.topo, &ctx.cpu_identity, selected).is_err());
+        for status in [SessionStatus::Failed, SessionStatus::Cancelled] {
+            let mut invalid = detail.clone();
+            invalid.summary.status = status;
+            assert!(tested_target(&invalid, &ctx.topo, &ctx.cpu_identity, selected).is_err());
+        }
+        let file = ctx.storage_root.join(&ctx.session_id).join("session.json");
+        let text = std::fs::read_to_string(&file).unwrap();
+        std::fs::write(&file, text.replace("Completed", "Failed")).unwrap();
+        assert!(manager
+            .apply_core_at(
+                &ctx.topo,
+                &ctx.cpu_identity,
+                GPU_A,
+                selected,
+                Some(&ctx.session_id),
+                &ctx.storage_root,
+                &journal,
+                &restore
+            )
+            .is_err());
+        assert_eq!(backend.current_policy(GPU_A), baseline);
+    }
+
+    #[test]
+    fn quick_single_cancel_and_capture_failure_restore() {
+        use crate::benchmark::physical::{RankingStatus, METHOD_VERSION};
+        for mode in [
+            "single",
+            "cancel",
+            "capture",
+            "restore",
+            "write",
+            "readback",
+            "restart",
+            "gpu_missing",
+        ] {
+            let root = temp_root(&format!("quick_{mode}"));
+            let journal = root.join("journal.json");
+            let backend = Arc::new(FakeBackend::new(if mode == "gpu_missing" {
+                vec![]
+            } else {
+                vec![device(GPU_A)]
+            }));
+            let baseline = AffinityPolicy {
+                instance_id: GPU_A.into(),
+                ..Default::default()
+            };
+            let processes = Arc::new(FakeProcessRunner::new());
+            *processes.presentmon_csv.lock().unwrap() = csv_for_lp(0);
+            if mode == "capture" {
+                processes.fail_presentmon_rounds.lock().unwrap().insert(1);
+            }
+            if mode == "restore" {
+                backend.disable_fails.store(true, Ordering::SeqCst);
+            }
+            if mode == "write" {
+                backend.fail_next_write();
+            }
+            if mode == "readback" {
+                backend.fail_nth_read_mismatch(2);
+            }
+            if mode == "restart" {
+                backend.fail_next_restart.store(true, Ordering::SeqCst);
+            }
+            let cancel = Arc::new(FakeCancel::new());
+            let cancel_at_retest = cancel.clone();
+            let mut config = base_config();
+            config.method_version = METHOD_VERSION;
+            config.candidate_lps.clear();
+            let mut ctx = build_ctx(
+                &root,
+                backend.clone(),
+                processes,
+                cancel,
+                Arc::new(NoopSleeper),
+                config,
+                &journal,
+                Some(Box::new(move |p| {
+                    if mode == "cancel" && p.round == Some(1) {
+                        cancel_at_retest.set(true);
+                    }
+                })),
+            );
+            ctx.topo = build_topology(vec![(vec![0, 63], 0, true)]);
+            let result = run_benchmark(&mut ctx);
+            if mode == "single" {
+                assert_eq!(
+                    result.status,
+                    SessionStatus::Completed,
+                    "{:?}",
+                    result.error
+                );
+                assert_eq!(
+                    result.detail.summary.quick.as_ref().unwrap().status,
+                    RankingStatus::SingleCandidate
+                );
+                assert_eq!(result.detail.summary.capture_quality.total_captures, 2);
+            } else if mode == "cancel" {
+                assert_eq!(result.status, SessionStatus::Cancelled);
+            } else {
+                assert_eq!(result.status, SessionStatus::Failed, "{mode}");
+            }
+            if mode == "restore" {
+                assert!(journal.exists());
+                assert!(result.recovery_required);
+            } else {
+                assert_eq!(backend.current_policy(GPU_A), baseline);
+                assert!(!journal.exists());
+            }
+        }
     }
 }

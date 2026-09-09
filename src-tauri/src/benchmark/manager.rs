@@ -1,8 +1,10 @@
-//! 基準測試管理者（Task 1 骨架）：AppState 持有 `BenchmarkManager`，
-//! 提供狀態查詢、取消訊號、以及「套用最佳 LP」「還原先前策略」「啟動還原」。
-//!
-//! 所有會動系統的協調都寫成接受注入路徑的 free function，
-//! 單元測試用 fake backend + 暫存目錄跑完整流程，不碰真實 HKLM/裝置。
+#[path = "core_apply.rs"]
+pub mod core_apply;
+// 基準測試管理者（Task 1 骨架）：AppState 持有 `BenchmarkManager`，
+// 提供狀態查詢、取消訊號、實體核心套用、先前策略還原與啟動回復。
+//
+// 所有會動系統的協調都寫成接受注入路徑的 free function，
+// 單元測試用 fake backend + 暫存目錄跑完整流程，不碰真實 HKLM/裝置。
 
 use std::path::{Path, PathBuf};
 use std::sync::atomic::{AtomicBool, AtomicU8, Ordering};
@@ -10,11 +12,18 @@ use std::sync::{Arc, RwLock};
 
 use tauri::{AppHandle, Emitter, Manager};
 
+#[cfg(test)]
+use super::{
+    ApplyStatus, EnvironmentStability, EquivalentSafetyStatus, EquivalentSafetyValidation,
+    ReliabilityStatus, SessionSummary,
+};
 use crate::config;
 use crate::error::codes;
+#[cfg(test)]
+use crate::gpu::single_lp_mask_bytes;
 use crate::gpu::{
-    policy_matches, restore_snapshot, single_lp_mask_bytes, AffinityPolicy, GpuBackend,
-    RealSleeper, RegistryValueSnapshot, Sleep, DEVICE_POLICY_SINGLE_PROCESSOR,
+    policy_matches, restore_snapshot, AffinityPolicy, GpuBackend, RealSleeper,
+    RegistryValueSnapshot, Sleep, DEVICE_POLICY_SINGLE_PROCESSOR,
 };
 use crate::topology::Topology;
 
@@ -27,10 +36,9 @@ use super::storage;
 use super::window_layout::{self, plan_layout, RealMainWindowController};
 use super::window_win::RealWorkloadWindow;
 use super::{
-    cpu_fingerprint_with, detect_cpu_identity, ApplyStatus, BenchmarkConfig, BenchmarkOperation,
-    BenchmarkProgress, BenchmarkStage, BenchmarkState, CpuIdentity, EnvironmentStability,
-    EquivalentSafetyStatus, EquivalentSafetyValidation, ReliabilityStatus, SessionDetail,
-    SessionStatus, SessionSummary, WindowIntegrity, WindowLayout,
+    cpu_fingerprint_with, detect_cpu_identity, BenchmarkConfig, BenchmarkOperation,
+    BenchmarkProgress, BenchmarkStage, BenchmarkState, CpuIdentity, SessionDetail, SessionStatus,
+    WindowIntegrity, WindowLayout,
 };
 
 /// 一層還原記錄檔：`%APPDATA%\FrameAnchor\gpu-restore.json`。
@@ -79,6 +87,7 @@ impl PartialEq<&str> for ApplyError {
 /// 步驟：相容性驗證 → BasicDisplay 防呆 → 委派到 [`apply_affinity_to_gpu`]。
 /// `sleeper` 與 `cpu_identity` 注入，讓測試不真睡、不依賴真實 CPU 身分。
 #[allow(clippy::too_many_arguments)]
+#[cfg(test)]
 pub fn apply_best_affinity(
     backend: &dyn GpuBackend,
     sleeper: &dyn Sleep,
@@ -147,6 +156,7 @@ pub fn apply_best_affinity(
 /// 任何在「策略可能已被修改」之後的失敗都走 [`rollback`]：還原快照並清日誌/記錄；
 /// 還原失敗則寫入 stage=PolicyApplied 的日誌等啟動重試（見 [`rollback`]）。
 /// 呼叫端負責所有前置驗證（LP 範圍、GPU 存在、BasicDisplay、recovery_required）。
+#[cfg(test)]
 pub fn apply_affinity_to_gpu(
     backend: &dyn GpuBackend,
     sleeper: &dyn Sleep,
@@ -155,6 +165,30 @@ pub fn apply_affinity_to_gpu(
     journal_path: &Path,
     restore_path: &Path,
 ) -> Result<(), ApplyError> {
+    apply_mask_to_gpu(
+        backend,
+        sleeper,
+        instance_id,
+        single_lp_mask_bytes(lp),
+        journal_path,
+        restore_path,
+    )
+}
+
+pub fn apply_mask_to_gpu(
+    backend: &dyn GpuBackend,
+    sleeper: &dyn Sleep,
+    instance_id: &str,
+    override_bytes: Vec<u8>,
+    journal_path: &Path,
+    restore_path: &Path,
+) -> Result<(), ApplyError> {
+    if override_bytes.is_empty()
+        || override_bytes.len() > 8
+        || override_bytes.iter().all(|b| *b == 0)
+    {
+        return Err(ApplyError::clean(codes::BENCHMARK_SESSION_INCOMPATIBLE));
+    }
     // 1) 快照目前策略 + 寫還原日誌（第一次變更之前）
     let snapshot = backend
         .read_affinity_policy(instance_id)
@@ -162,7 +196,6 @@ pub fn apply_affinity_to_gpu(
     recovery::begin_at(journal_path, &snapshot)?;
 
     // 2) 寫入新策略：DevicePolicy=4（DWORD）+ AssignmentSetOverride=單 LP mask（REG_BINARY）
-    let override_bytes = single_lp_mask_bytes(lp);
     let new_policy = AffinityPolicy {
         instance_id: instance_id.to_string(),
         device_policy: RegistryValueSnapshot::dword(DEVICE_POLICY_SINGLE_PROCESSOR),
@@ -327,6 +360,7 @@ fn advance_stage(journal_path: &Path, stage: RecoveryStage) -> Result<(), String
 }
 
 /// 還原到「上次成功套用」之前的策略（一層還原記錄）。
+#[cfg(test)]
 pub fn restore_previous_affinity(
     backend: &dyn GpuBackend,
     sleeper: &dyn Sleep,
@@ -430,11 +464,12 @@ const OP_IDLE: u8 = 0;
 const OP_BENCHMARK: u8 = 1;
 const OP_MUTATION: u8 = 2;
 const OP_VALIDATION: u8 = 3;
+const OP_UPDATE: u8 = 4;
 
 /// RAII 釋放：drop 時把 reservation 歸零。背景 benchmark 的 guard 會被移入
 /// runner 的 closure，直到 runner 終結（寫完最終 status 後）才 drop，確保
 /// 執行期間其他 mutation/start 全被拒絕；panic 也會觸發 drop。
-struct GpuOperationGuard {
+pub(crate) struct GpuOperationGuard {
     reservation: Arc<AtomicU8>,
 }
 
@@ -488,6 +523,33 @@ impl BenchmarkManager {
             }),
             Err(_) => Err(codes::BENCHMARK_ALREADY_RUNNING.to_string()),
         }
+    }
+
+    pub(crate) fn reserve_mutation(&self) -> Result<GpuOperationGuard, String> {
+        self.reserve(OP_MUTATION)
+    }
+    pub(crate) fn reserve_update(&self) -> Result<GpuOperationGuard, String> {
+        self.reserve(OP_UPDATE)
+    }
+    pub fn begin_update(&self) -> Result<(), String> {
+        self.reservation
+            .compare_exchange(OP_IDLE, OP_UPDATE, Ordering::AcqRel, Ordering::Acquire)
+            .map(|_| ())
+            .map_err(|_| codes::BENCHMARK_ALREADY_RUNNING.into())
+    }
+    pub fn end_update(&self) {
+        let _ = self.reservation.compare_exchange(
+            OP_UPDATE,
+            OP_IDLE,
+            Ordering::AcqRel,
+            Ordering::Acquire,
+        );
+    }
+    pub fn can_exit(&self) -> bool {
+        matches!(
+            self.reservation.load(Ordering::Acquire),
+            OP_IDLE | OP_UPDATE
+        ) && !self.is_running()
     }
 
     /// 開始新 session 前把取消訊號歸零（watch channel 實際值 + state.cancel_requested）。
@@ -557,7 +619,7 @@ impl BenchmarkManager {
     /// 執行中 → 拒絕退出/重啟（讓 runner 完成或安全取消/還原），
     /// 非執行中（Idle/Completed/Failed/Cancelled）→ 允許。
     pub fn refuse_exit_if_running(&self) -> Result<(), String> {
-        if self.is_running() {
+        if self.is_running() || self.reservation.load(Ordering::Acquire) != 0 {
             Err(codes::BENCHMARK_ALREADY_RUNNING.to_string())
         } else {
             Ok(())
@@ -568,10 +630,12 @@ impl BenchmarkManager {
     pub fn state_snapshot(&self) -> BenchmarkState {
         let mut s = self.state.read().map(|s| s.clone()).unwrap_or_default();
         s.recovery_required = self.recovery_required();
+        s.gpu_busy = self.reservation.load(Ordering::Acquire) != OP_IDLE;
         s
     }
 
     /// 套用最佳 LP。recovery 未完成或已有任何 GPU 操作時封鎖。
+    #[cfg(test)]
     pub fn apply_best(&self, topo: &Topology, session_id: &str) -> Result<(), String> {
         if self.recovery_required() {
             return Err(codes::BENCHMARK_RECOVERY_REQUIRED.to_string());
@@ -594,6 +658,7 @@ impl BenchmarkManager {
 
     /// 只判定某個歷史 session「現在可否套用」（不做任何變更）。
     /// 相容性判定全在後端，前端不重算。
+    #[cfg(test)]
     pub fn check_apply(&self, topo: &Topology, session_id: &str) -> ApplyStatus {
         if self.recovery_required() {
             return ApplyStatus {
@@ -615,6 +680,7 @@ impl BenchmarkManager {
 
     /// 可匯入的已完成 session（相容：CPU 指紋一致 + GPU 存在 + 有 bestLp）。
     /// 相容性判定只在後端，前端不重算。
+    #[cfg(test)]
     pub fn list_importable(&self, topo: &Topology) -> Vec<SessionSummary> {
         list_importable(
             self.backend.as_ref(),
@@ -626,6 +692,7 @@ impl BenchmarkManager {
 
     /// 手動套用 GPU 中斷親和性到指定 LP。前置驗證：recovery、執行中、
     /// LP 範圍、GPU 存在、BasicDisplay；驗證後委派到共享 mutation 路徑。
+    #[cfg(test)]
     pub fn apply_gpu_affinity(
         &self,
         topo: &Topology,
@@ -643,6 +710,7 @@ impl BenchmarkManager {
 
     /// 手動套用 GPU 中斷親和性到指定 LP（可注入還原日誌與還原記錄路徑供測試隔離）。
     /// 前置驗證與 [`apply_gpu_affinity`] 相同。
+    #[cfg(test)]
     pub fn apply_gpu_affinity_at(
         &self,
         topo: &Topology,
@@ -690,17 +758,40 @@ impl BenchmarkManager {
 
     /// 還原到先前策略。這是使用者顯式還原，不因 recovery_required 封鎖，
     /// 但仍需取得 mutation 排他權（benchmark / 另一 mutation 進行中 → 拒絕）。
+    #[cfg(test)]
     pub fn restore_previous(&self) -> Result<(), String> {
-        let _guard = self.reserve(OP_MUTATION)?;
-        restore_previous_affinity(
-            self.backend.as_ref(),
-            self.sleeper.as_ref(),
-            &restore_record_path(),
-        )
+        self.restore_reserved(self.reserve(OP_MUTATION)?)
+    }
+
+    pub(crate) fn restore_reserved(&self, _guard: GpuOperationGuard) -> Result<(), String> {
+        self.restore_previous_at(&recovery::recovery_path(), &restore_record_path())
+    }
+
+    fn restore_previous_at(&self, journal: &Path, restore: &Path) -> Result<(), String> {
+        // 未完成的測試回復優先，不以更舊的手動還原覆蓋它。
+        if self.recovery_required() || journal.exists() {
+            if !journal.exists() {
+                return Err(codes::BENCHMARK_RECOVERY_REQUIRED.into());
+            }
+            attempt_startup_recovery(self.backend.as_ref(), self.sleeper.as_ref(), journal)?;
+            self.recovery_required.store(false, Ordering::Release);
+            return Ok(());
+        }
+        let snapshot =
+            load_restore_record(restore)?.ok_or_else(|| codes::GPU_RESTORE_FAILED.to_string())?;
+        recovery::mark_restore_needed_at(journal, &snapshot)?;
+        let result = restore_snapshot(self.backend.as_ref(), self.sleeper.as_ref(), &snapshot)
+            .and_then(|_| clear_restore_record(restore))
+            .and_then(|_| recovery::clear_at(journal));
+        if result.is_err() {
+            self.set_recovery_required();
+        }
+        result
     }
 
     /// 等效安全驗證：single-flight。目前鎖定核心已在 pair 內 → 立即 Passed；
     /// 否則 spawn_blocking 跑 3 組 AB/BA，結果寫回原 session（保持 Completed）。
+    #[cfg(test)]
     pub fn validate_equivalent_candidate(
         self: &Arc<Self>,
         app: &AppHandle,
@@ -774,6 +865,7 @@ impl BenchmarkManager {
 
     /// 套用等效親和性：驗證 validation Passed / selected 一致 / live reference 未變，
     /// 然後委派到共享 mutation 路徑 [`apply_affinity_to_gpu`]。
+    #[cfg(test)]
     pub fn apply_equivalent_gpu_affinity(
         &self,
         topo: &Topology,
@@ -814,6 +906,7 @@ impl BenchmarkManager {
 
     /// 背景執行 3 AB/BA 等效安全驗證（寫回結果後 drop reservation guard）。
     #[allow(clippy::too_many_arguments)]
+    #[cfg(test)]
     fn spawn_equivalent_validation(
         self: &Arc<Self>,
         app: &AppHandle,
@@ -997,6 +1090,8 @@ impl BenchmarkManager {
             st.progress_pct = 0;
             st.elapsed_secs = 0;
             st.current_lp = None;
+            st.current_target = None;
+            st.current_phase = None;
             st.operation = Some(BenchmarkOperation::Benchmark);
             st.window_layout = WindowLayout::CompactProgress;
             st.window_integrity = WindowIntegrity::default();
@@ -1032,6 +1127,12 @@ impl BenchmarkManager {
                     st.session_id = Some(p.session_id.clone());
                     st.stage = runner_stage_to_enum(&p.stage);
                     st.current_lp = p.lp;
+                    if p.target.is_some() {
+                        st.current_target = p.target.clone();
+                    }
+                    if p.phase.is_some() {
+                        st.current_phase = p.phase;
+                    }
                     st.progress_pct = p.percentage;
                     st.elapsed_secs = started.elapsed().as_secs();
                     // 取消欄位只在事件有值時更新，避免一般 progress（None）抹掉
@@ -1086,6 +1187,8 @@ impl BenchmarkManager {
                 st.progress_pct = 100;
                 st.stage = BenchmarkStage::Finalizing;
                 st.current_lp = None;
+                st.current_target = None;
+                st.current_phase = None;
                 st.elapsed_secs = started.elapsed().as_secs();
                 st.operation = None;
                 st.window_layout = WindowLayout::Normal;
@@ -1102,6 +1205,7 @@ impl BenchmarkManager {
             // get_benchmark_state 讀到已提交的終態（Completed/Failed/Cancelled），
             // 不依賴 setTimeout race。
             let final_progress = BenchmarkProgress {
+                target: None,
                 session_id: result.detail.summary.id.clone(),
                 stage: "finalizing".to_string(),
                 round: None,
@@ -1145,6 +1249,7 @@ impl BenchmarkManager {
 /// 判定某個 session「現在可否套用」的核心邏輯（free function，注入路徑/身分供測試）。
 /// 順序：session 存在 →（Equivalent 走等效契約）→ Completed + bestLp → 可靠性 Passed →
 /// LP 範圍 → CPU 指紋 → GPU 存在 → BasicDisplay。
+#[cfg(test)]
 fn check_apply_at(
     backend: &dyn GpuBackend,
     topo: &Topology,
@@ -1206,6 +1311,7 @@ fn check_apply_at(
 }
 
 /// Equivalent-mode session 的「可否套用」契約（與 legacy `bestLp` 路徑分離）。
+#[cfg(test)]
 fn check_equivalent_apply(
     backend: &dyn GpuBackend,
     topo: &Topology,
@@ -1274,6 +1380,7 @@ fn check_equivalent_apply(
 }
 
 /// 可匯入的已完成 session（free function，注入路徑/身分供測試）。
+#[cfg(test)]
 fn list_importable(
     backend: &dyn GpuBackend,
     topo: &Topology,
@@ -1301,6 +1408,7 @@ fn list_importable(
 }
 
 /// 由精簡 LE 單 LP mask bytes 反解 LP index（單一位元）；非單一位元 → None。
+#[cfg(test)]
 pub fn mask_bytes_to_lp(bytes: Option<&[u8]>) -> Option<u32> {
     let bytes = bytes?;
     if bytes.is_empty() || bytes.len() > 8 {
@@ -1317,6 +1425,7 @@ pub fn mask_bytes_to_lp(bytes: Option<&[u8]>) -> Option<u32> {
 
 /// 等效安全驗證的前置決策。
 #[derive(Debug)]
+#[cfg(test)]
 pub enum EquivalentValidationPlan {
     /// 目前鎖定核心已在 pair 內 → 立即 Passed（同核心 no-op 或選另一 finalist）。
     ImmediatePass { reference_lp: u32 },
@@ -1326,6 +1435,7 @@ pub enum EquivalentValidationPlan {
 
 /// 前置決策：session 為 equivalent 契約、selected 在 pair 內、相容性通過，且能由目前
 /// policy 解出鎖定核心（reference）。回傳 ImmediatePass / RunCaptures，或拒絕原因。
+#[cfg(test)]
 pub fn equivalent_validation_plan(
     backend: &dyn GpuBackend,
     topo: &Topology,
@@ -1379,6 +1489,7 @@ pub fn equivalent_validation_plan(
 
 /// 套用等效親和性的前置決策：validation Passed、selected 一致、live reference policy
 /// 未變、相容性通過。通過 → 回傳要套用的 selected_lp；否則拒絕原因。
+#[cfg(test)]
 pub fn apply_equivalent_decision(
     backend: &dyn GpuBackend,
     topo: &Topology,
@@ -1437,6 +1548,7 @@ pub fn apply_equivalent_decision(
 }
 
 /// 把等效安全驗證結果寫回原 session（不重算、不遷移歷史；原 session 保持 Completed）。
+#[cfg(test)]
 pub fn write_equivalent_validation(
     storage_root: &Path,
     session_id: &str,
@@ -1450,6 +1562,7 @@ pub fn write_equivalent_validation(
 /// 等效安全驗證的前置：assets 解析/驗證成功（`assets` 為 Ok）才寫 `Pending` 並回傳
 /// 已驗證的 assets；失敗不寫任何狀態、直接回傳 Err。讓呼叫端在 spawn 前失敗時
 /// session 保持原狀（可重試），不會留下永久 `Pending`。
+#[cfg(test)]
 fn begin_equivalent_validation(
     storage_root: &Path,
     session_id: &str,
@@ -1476,6 +1589,7 @@ fn begin_equivalent_validation(
 
 /// validation 的 reference snapshot 是否仍與目前 live policy 一致（逐位元組）。
 /// snapshot 為 None（舊資料或缺漏）→ false（保守拒絕）。
+#[cfg(test)]
 fn equivalent_reference_matches(
     validation: &EquivalentSafetyValidation,
     current: &AffinityPolicy,
@@ -1487,6 +1601,7 @@ fn equivalent_reference_matches(
 }
 
 /// 解析並驗證內建資源（assets）；任一失敗不寫任何 validation 狀態。
+#[cfg(test)]
 fn resolve_and_verify_assets(app: &AppHandle) -> Result<BenchmarkAssets, String> {
     let assets = resolve_assets(app)?;
     assets::verify(&assets).map_err(|e| e.code().to_string())?;
@@ -2389,8 +2504,9 @@ mod tests {
     fn effective_lps_default_excludes_smt_siblings() {
         // 8C16T SMT：sibling 與 primary 同一顆物理核心（GPU policy 綁單一 LP），
         // 預設只測 primary，排除 physical Core 0（LP 0,1）
-        let cores: Vec<(Vec<u32>, u8, bool)> =
-            (0..8u32).map(|c| (vec![c * 2, c * 2 + 1], 0, true)).collect();
+        let cores: Vec<(Vec<u32>, u8, bool)> = (0..8u32)
+            .map(|c| (vec![c * 2, c * 2 + 1], 0, true))
+            .collect();
         let t = crate::topology::build_topology(cores);
         let c = BenchmarkConfig::default();
         assert_eq!(runner::effective_lps(&c, &t), vec![2, 4, 6, 8, 10, 12, 14]);
@@ -3459,5 +3575,107 @@ mod tests {
         );
         assert!(st.requires_safety_validation);
         let _ = std::fs::remove_dir_all(&dir);
+    }
+    #[test]
+    fn physical_core_apply_rolls_back_faults_and_preserves_pending_recovery() {
+        for mode in [
+            "write", "restart", "read", "mismatch", "clear", "restore", "missing",
+        ] {
+            let root = temp_dir(&format!("physical_apply_{mode}"));
+            let backend = Arc::new(FakeBackend::new(if mode == "missing" {
+                vec![]
+            } else {
+                vec![device(GPU_A)]
+            }));
+            let baseline = policy_on(GPU_A, 4, 4); // E-core policy is a valid restore target.
+            backend.set_policy(baseline.clone());
+            let mut manager = BenchmarkManager::new(backend.clone());
+            manager.sleeper = Arc::new(NoopSleeper);
+            let topo = build_topology(vec![(vec![0, 1], 1, true), (vec![2], 0, false)]);
+            if mode == "write" {
+                backend.fail_next_write();
+            }
+            if mode == "restart" {
+                backend.fail_next_restart.store(true, Ordering::SeqCst);
+            }
+            if mode == "read" {
+                backend.fail_nth_read(2);
+            }
+            if mode == "mismatch" {
+                backend.fail_nth_read_mismatch(2);
+            }
+            if mode == "clear" {
+                recovery::inject::fail_next_clear();
+            }
+            if mode == "restore" {
+                backend.disable_fails.store(true, Ordering::SeqCst);
+            }
+            let journal = root.join("journal.json");
+            let restore = root.join("restore.json");
+            assert!(
+                manager
+                    .apply_core_at(
+                        &topo,
+                        &fixed_identity(),
+                        GPU_A,
+                        0,
+                        None,
+                        &root,
+                        &journal,
+                        &restore
+                    )
+                    .is_err(),
+                "{mode}"
+            );
+            assert_eq!(backend.current_policy(GPU_A), baseline, "{mode}");
+            if mode == "restore" {
+                assert!(journal.exists());
+                assert!(manager.recovery_required());
+            } else {
+                assert!(!journal.exists());
+                assert!(!manager.recovery_required());
+            }
+        }
+    }
+
+    #[test]
+    fn legacy_gpu_restore_remains_valid_and_is_journaled_on_failure() {
+        let root = temp_dir("physical_legacy_restore");
+        let backend = Arc::new(FakeBackend::new(vec![device(GPU_A)]));
+        let original = policy_on(GPU_A, 4, 0x84); // arbitrary multi-LP policy, not a candidate
+        let mut manager = BenchmarkManager::new(backend.clone());
+        manager.sleeper = Arc::new(NoopSleeper);
+        let journal = root.join("journal.json");
+        let restore = root.join("restore.json");
+        write_restore_record(&restore, &original).unwrap();
+        backend.fail_next_restart.store(true, Ordering::SeqCst);
+        assert!(manager.restore_previous_at(&journal, &restore).is_err());
+        assert!(journal.exists());
+        assert!(restore.exists());
+        assert!(manager.recovery_required());
+        manager.restore_previous_at(&journal, &restore).unwrap();
+        assert_eq!(backend.current_policy(GPU_A), original);
+        assert!(!journal.exists());
+        assert!(!manager.recovery_required());
+    }
+
+    #[test]
+    fn all_gpu_operations_block_close_and_updates_exclude_mutations() {
+        let m = BenchmarkManager::new(Arc::new(FakeBackend::new(vec![])));
+        for kind in [OP_BENCHMARK, OP_MUTATION] {
+            let guard = m.reserve(kind).unwrap();
+            assert!(m.refuse_exit_if_running().is_err());
+            assert!(!m.can_exit());
+            assert!(m.begin_update().is_err());
+            assert!(m.state_snapshot().gpu_busy);
+            drop(guard);
+        }
+        m.begin_update().unwrap();
+        assert!(m.reserve(OP_BENCHMARK).is_err());
+        assert!(m.reserve(OP_MUTATION).is_err());
+        assert!(m.can_exit()); // installer may restart after acquiring exclusion
+        m.end_update();
+        assert!(!m.state_snapshot().gpu_busy);
+        assert!(m.can_exit());
     }
 }

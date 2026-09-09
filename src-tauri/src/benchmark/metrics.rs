@@ -466,12 +466,14 @@ pub fn competitive_score(r: &LpResult, med: &RoundMedians) -> Option<f64> {
 /// 跨 round 穩健候選：`scores_by_lp` 為每 LP 的逐 round 競爭分數。
 /// 依跨 round 分數中位數降序；平手取 worst-round 分數較高；再取較小 LP。
 #[derive(Clone, Copy, Debug, PartialEq)]
+#[cfg(test)]
 pub struct RobustCandidate {
     pub lp: u32,
     pub median_score: f64,
     pub worst_round_score: f64,
 }
 
+#[cfg(test)]
 pub fn robust_candidates(scores_by_lp: &[(u32, Vec<f64>)]) -> Vec<RobustCandidate> {
     let mut out: Vec<RobustCandidate> = scores_by_lp
         .iter()
@@ -506,9 +508,13 @@ pub fn robust_candidates(scores_by_lp: &[(u32, Vec<f64>)]) -> Vec<RobustCandidat
 
 /// 確認分數權重（總和 1.0）：1% low 主導、0.1% low 次之、MAD 與 avg 為輔。
 /// spike 不進主分數，只當 guardrail。
+#[cfg(test)]
 pub const CONFIRM_W_P1_LOW: f64 = 0.40;
+#[cfg(test)]
 pub const CONFIRM_W_P01_LOW: f64 = 0.20;
+#[cfg(test)]
 pub const CONFIRM_W_MAD: f64 = 0.25;
+#[cfg(test)]
 pub const CONFIRM_W_AVG_FPS: f64 = 0.15;
 
 /// 有界 log-ratio 效應（每項 clamp 到 [-5, +5]）：
@@ -516,6 +522,7 @@ pub const CONFIRM_W_AVG_FPS: f64 = 0.15;
 /// - `higher_is_better=false`（MAD 越低越好）→ `100 * ln(runner / candidate)`。
 ///
 /// 守門：任一值非有限或 ≤0 → None（fail closed，不給中性分）。
+#[cfg(test)]
 pub fn confirmation_log_ratio(candidate: f64, runner: f64, higher_is_better: bool) -> Option<f64> {
     if !candidate.is_finite() || !runner.is_finite() || candidate <= 0.0 || runner <= 0.0 {
         return None;
@@ -536,6 +543,7 @@ pub fn confirmation_log_ratio(candidate: f64, runner: f64, higher_is_better: boo
 /// 單一 (candidate vs runner) 配對的確認複合分數：加權有界 log-ratio。
 /// 任一必要指標（avg / 1% low / 0.1% low / MAD）非有限或 ≤0 → None（fail closed）。
 /// spike 不進主分數（只當 guardrail）。
+#[cfg(test)]
 pub fn confirmation_effect(candidate: &LpResult, runner: &LpResult) -> Option<f64> {
     let avg = confirmation_log_ratio(candidate.avg_fps?, runner.avg_fps?, true)?;
     let p1 = confirmation_log_ratio(candidate.p1_low?, runner.p1_low?, true)?;
@@ -697,6 +705,7 @@ pub fn best_lp(results: &[LpResult]) -> Option<u32> {
 
 /// 嚴重 LP：Avg、1% Low、0.1% Low 任一低於該指標中位數的 85%，
 /// 或 STDEV 高於中位數的 150%。中位數 STDEV 為 0 時停用 STDEV 條件。
+#[cfg(test)]
 pub fn severe_lps(results: &[LpResult]) -> Vec<u32> {
     let rows = complete_rows(results);
     if rows.is_empty() {

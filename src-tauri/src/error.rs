@@ -85,18 +85,15 @@ pub mod codes {
 }
 
 #[derive(Error, Debug, Clone, Copy, PartialEq, Eq)]
+#[cfg(test)]
 pub enum ProcessError {
     #[error("access denied")]
     AccessDenied,
-    #[error("open process failed: {0}")]
-    OpenFailed(u32),
     #[error("win32 error: {0}")]
     Win32(u32),
-    /// GetPriorityClass 回傳未知 priority class 值（非 Win32 錯誤碼，僅供診斷）
-    #[error("unknown priority class: {0:#x}")]
-    UnknownPriorityClass(u32),
 }
 
+#[cfg(test)]
 impl ProcessError {
     /// 將 windows crate 回傳的 HRESULT 或原生 Win32 code 正規化成 raw Win32 code。
     pub fn normalize_win32(code: u32) -> u32 {
@@ -115,31 +112,6 @@ impl ProcessError {
             ProcessError::Win32(code)
         }
     }
-
-    pub fn from_windows(error: windows::core::Error) -> Self {
-        Self::from_win32(error.code().0 as u32)
-    }
-
-    pub fn from_last_open() -> Self {
-        let err = std::io::Error::last_os_error();
-        match err.raw_os_error() {
-            Some(5) => ProcessError::AccessDenied, // ERROR_ACCESS_DENIED
-            Some(code) => ProcessError::OpenFailed(code as u32),
-            None => ProcessError::OpenFailed(0),
-        }
-    }
-
-    pub fn is_access_denied(&self) -> bool {
-        matches!(self, ProcessError::AccessDenied)
-    }
-}
-
-#[derive(Error, Debug)]
-pub enum PriorityError {
-    #[error("ntstatus: {0:#x}")]
-    NtStatus(i32),
-    #[error("win32 error: {0}")]
-    Win32(u32),
 }
 
 #[derive(Error, Debug)]

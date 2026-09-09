@@ -1,80 +1,17 @@
 //! IPC commands（PLAN §8）。錯誤回傳穩定代碼字串，前端查 i18n 顯示。
 
-use std::sync::atomic::Ordering;
 use std::sync::Arc;
 
 use tauri::{AppHandle, Emitter, State};
 
-use crate::applied::{collect_applied, emit_applied, AppliedProcess};
-use crate::model::{Rule, Settings};
+use crate::model::Settings;
 use crate::topology::Topology;
 use crate::update::{self, UpdateState, UpdateStatus};
-use crate::windows_enum::WindowInfo;
-use crate::{autostart, config, process, tray, windows_enum, AppState};
+use crate::{config, AppState};
 
 #[tauri::command]
 pub fn get_topology(state: State<Arc<AppState>>) -> Topology {
     state.topology.clone()
-}
-
-#[tauri::command]
-pub fn list_windows(state: State<Arc<AppState>>) -> Vec<WindowInfo> {
-    let rules = state
-        .config
-        .read()
-        .map(|c| c.rules.clone())
-        .unwrap_or_default();
-    let my_pid = std::process::id();
-    windows_enum::list_windows(my_pid, |exe_path| {
-        let norm = process::normalize_path(exe_path);
-        rules
-            .iter()
-            .any(|r| process::normalize_path(&r.exe_path) == norm)
-    })
-}
-
-#[tauri::command]
-pub fn get_rules(state: State<Arc<AppState>>) -> Vec<Rule> {
-    state
-        .config
-        .read()
-        .map(|c| c.rules.clone())
-        .unwrap_or_default()
-}
-
-#[tauri::command]
-pub fn save_rule(state: State<Arc<AppState>>, app: AppHandle, rule: Rule) -> Result<(), String> {
-    {
-        let mut cfg = state.config.write().map_err(|e| e.to_string())?;
-        let mut candidate = cfg.clone();
-        if let Some(existing) = candidate.rules.iter_mut().find(|r| r.id == rule.id) {
-            *existing = rule;
-        } else {
-            candidate.rules.push(rule);
-        }
-        config::save(&candidate)?;
-        *cfg = candidate;
-        state.config_revision.fetch_add(1, Ordering::Release);
-    }
-    // 規則變更 → 清空 applied，watcher 下一輪全部重套（PLAN §8）
-    state.applied.write().map_err(|e| e.to_string())?.clear();
-    emit_applied(&app, &state);
-    Ok(())
-}
-
-#[tauri::command]
-pub fn delete_rule(state: State<Arc<AppState>>, app: AppHandle, id: String) -> Result<(), String> {
-    {
-        let mut cfg = state.config.write().map_err(|e| e.to_string())?;
-        let mut candidate = cfg.clone();
-        candidate.rules.retain(|r| r.id != id);
-        config::save(&candidate)?;
-        *cfg = candidate;
-        state.config_revision.fetch_add(1, Ordering::Release);
-    }
-    state.applied.write().map_err(|e| e.to_string())?.clear();
-    emit_applied(&app, &state);
-    Ok(())
 }
 
 #[tauri::command]
@@ -87,68 +24,13 @@ pub fn get_settings(state: State<Arc<AppState>>) -> Settings {
 }
 
 #[tauri::command]
-pub fn save_settings(
-    state: State<Arc<AppState>>,
-    app: AppHandle,
-    settings: Settings,
-) -> Result<(), String> {
-    let lang_changed = {
-        let cfg = state.config.read().map_err(|e| e.to_string())?;
-        cfg.settings.language != settings.language
-    };
-    {
-        let mut cfg = state.config.write().map_err(|e| e.to_string())?;
-        let mut candidate = cfg.clone();
-        candidate.settings = settings;
-        config::save(&candidate)?;
-        *cfg = candidate;
-        state.config_revision.fetch_add(1, Ordering::Release);
-    }
-    if lang_changed {
-        tray::rebuild_menu(&app);
-    }
+pub fn save_settings(state: State<Arc<AppState>>, settings: Settings) -> Result<(), String> {
+    let mut cfg = state.config.write().map_err(|e| e.to_string())?;
+    let mut candidate = cfg.clone();
+    candidate.settings = settings;
+    config::save(&candidate)?;
+    *cfg = candidate;
     Ok(())
-}
-
-#[tauri::command]
-pub fn set_autostart(
-    state: State<Arc<AppState>>,
-    app: AppHandle,
-    enable: bool,
-) -> Result<(), String> {
-    {
-        let mut cfg = state.config.write().map_err(|e| e.to_string())?;
-        let previous = cfg.settings.start_with_windows;
-        autostart::set_autostart(enable)?;
-        let mut candidate = cfg.clone();
-        candidate.settings.start_with_windows = enable;
-        if let Err(e) = config::save(&candidate) {
-            let _ = autostart::set_autostart(previous);
-            return Err(e);
-        }
-        *cfg = candidate;
-        state.config_revision.fetch_add(1, Ordering::Release);
-    }
-    let _ = app; // tray check 由 rebuild/update 處理
-    tray::set_autostart_checked(enable);
-    Ok(())
-}
-
-#[tauri::command]
-pub fn get_applied(state: State<Arc<AppState>>) -> Vec<AppliedProcess> {
-    collect_applied(&state)
-}
-
-#[tauri::command]
-pub fn reapply_all(state: State<Arc<AppState>>, app: AppHandle) -> Result<(), String> {
-    state.applied.write().map_err(|e| e.to_string())?.clear();
-    emit_applied(&app, &state);
-    Ok(())
-}
-
-#[tauri::command]
-pub fn set_usage_streaming(state: State<Arc<AppState>>, active: bool) {
-    let _ = state.usage_tx.send(active);
 }
 
 #[tauri::command]
@@ -257,7 +139,7 @@ pub async fn perform_portable_update(
     state: State<'_, Arc<AppState>>,
 ) -> Result<(), String> {
     // 基準測試執行中：拒絕替換/退出，避免 runner 中斷未還原
-    state.benchmark.refuse_exit_if_running()?;
+    let _update_guard = state.benchmark.reserve_update()?;
     let version = update::current_version(&app);
 
     // 狀態：下載中
@@ -330,9 +212,15 @@ pub async fn perform_portable_update(
     update::execute_portable_replacement(&old_exe, &new_exe, &marker_path, &new_resources, pid)?;
 
     // 設定 quitting flag，繞過 close-to-tray，真正結束程序
-    state
-        .quitting
-        .store(true, std::sync::atomic::Ordering::Relaxed);
     app.exit(0);
     Ok(())
+}
+
+#[tauri::command]
+pub fn begin_update(state: State<Arc<AppState>>) -> Result<(), String> {
+    state.benchmark.begin_update()
+}
+#[tauri::command]
+pub fn end_update(state: State<Arc<AppState>>) {
+    state.benchmark.end_update();
 }

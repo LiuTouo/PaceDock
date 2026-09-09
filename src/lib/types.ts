@@ -1,46 +1,6 @@
 ﻿// 與 PLAN §5 對應的 TS 型別。enum 字串值採 PascalCase（與 serde 序列化一致）。
 
 export type Theme = 'Dark' | 'Light';
-export type MatchBy = 'FullPath' | 'FileName';
-export type AffinityMode = 'All' | 'NoSmtSibling' | 'PCoresOnly' | 'Custom' | 'Prefer';
-export type CpuPriority = 'Idle' | 'BelowNormal' | 'Normal' | 'AboveNormal' | 'High';
-export type IoPriority = 'VeryLow' | 'Low' | 'Normal' | 'High';
-export type MemPriority = 'VeryLow' | 'Low' | 'Medium' | 'BelowNormal' | 'Normal';
-
-export interface AffinitySpec {
-  mode: AffinityMode;
-  cores: number[]; // LP indices，僅 mode=Custom 使用
-}
-
-export interface AdvancedSpec {
-  ioPriority: IoPriority | null;
-  memoryPriority: MemPriority | null;
-}
-
-export interface Rule {
-  id: string;
-  name: string;
-  exePath: string;
-  matchBy: MatchBy;
-  enabled: boolean;
-  affinity: AffinitySpec;
-  priority: CpuPriority;
-  advanced: AdvancedSpec;
-  recommendation?: Recommendation; // GPU 基準測試推薦元資料（可選，舊 config 可能沒有）
-}
-
-/** GPU 基準測試推薦元資料（Rule 的證據欄位） */
-export interface Recommendation {
-  sessionId: string | null;
-  generatedAt: string | null;
-  cpuFingerprint: string | null;
-  gpuInstanceId: string | null;
-  bestLp: number | null;
-  severeLps: number[];
-  recommendedCores: number[];
-  adjusted: boolean;
-}
-
 export interface Settings {
   language: string; // 'zh-TW' | 'en'
   startWithWindows: boolean;
@@ -72,38 +32,6 @@ export interface Topology {
   hasHybrid: boolean;
   totalLp: number;
   processorGroups: number; // 偵測到的處理器群組數；>1 = 多群組，僅 group 0 列入拓撲
-}
-
-/** 套用策略：Hard/CpuSets = currentCores 為已驗證實際核心；Prefer = 偏好提示；None = 未套用 */
-export type AffinityStrategy = 'None' | 'Hard' | 'CpuSets' | 'Prefer';
-
-export interface AppliedProcess {
-  pid: number;
-  exeName: string;
-  ruleId: string;
-  ruleName: string;
-  affinityOk: boolean;
-  priorityOk: boolean;
-  ioOk: boolean | null;
-  memOk: boolean | null;
-  error: string | null; // 錯誤代碼，查 i18n errors.*
-  appliedAt: string;
-  currentCores: number[];
-  currentPriority: string;
-  softAffinity: boolean; // true = 軟綁定，currentCores 為偏好清單
-  threadIdealAttempted: number | null; // 執行緒 ideal 嘗試數；null = 非此路徑
-  threadIdealSucceeded: number | null; // 執行緒 ideal 成功數；succeeded < attempted = partial
-  strategy: AffinityStrategy; // Hard/CpuSets = 已驗證；Prefer = 未驗證偏好；None = 未套用
-}
-
-export interface WindowInfo {
-  hwnd: number;
-  pid: number;
-  title: string;
-  exeName: string;
-  exePath: string | null;
-  iconPng: string | null; // base64 PNG
-  alreadyHasRule: boolean;
 }
 
 // ── 更新相關型別 ──
@@ -186,12 +114,16 @@ export interface GpuDevice {
 
 /** 基準測試參數 */
 export interface BenchmarkConfig {
+  candidateCoreIds?: number[];
+  methodVersion?: number;
+  retestWarmUpSecs?: number;
+  retestSampleSecs?: number;
   candidateLps: number[]; // 要逐一測試的候選 LP；空 = 全部支援 LP
   gpuInstanceId: string | null;
   workload: WorkloadKind;
   warmUpSecs: number; // 預設 5
   sampleSecs: number; // 預設 30
-  repetitions: number; // 已停用（新排程固定 2 篩選 + 3..=5 確認，忽略此欄位）；保留供舊 session 向後相容
+  repetitions: number; // 已停用（新版兩階段排程忽略此欄位）；保留供舊 session 向後相容
   syncWorkloadAffinity: boolean; // 已棄用；固定 false。保留供舊 session 向後相容。
   fullscreen: boolean; // 預設 false
   width: number; // 1280
@@ -236,6 +168,7 @@ export type BenchmarkPhase =
   | 'EquivalentValidation';
 
 export interface BenchmarkProgress {
+  target?: CoreTarget | null;
   sessionId: string;
   stage: string; // starting/applying/launching/collecting/collected/finalizing
   round: number | null;
@@ -258,6 +191,7 @@ export interface CoreSample {
 }
 
 export interface SessionSummary {
+  quick?: QuickResult | null;
   id: string;
   status: SessionStatus;
   startedAt: string;
@@ -339,7 +273,7 @@ export interface SessionDetail {
   samples: CoreSample[];
   // 分相結果（新 schema；舊 session 缺欄）：
   screeningResults?: LpResult[]; // 篩選階段（3 round 全 LP）逐 LP 聚合結果
-  refinementResults?: LpResult[]; // refinement 階段（Top 3 各 2 round）逐 LP 聚合結果
+  refinementResults?: LpResult[]; // 新版前兩名的獨立複測結果；舊格式保留原 refinement 語意
   confirmationResults?: LpResult[]; // 前向確認階段（Top 2，3..=5 round）逐 LP 聚合結果
   equivalentSafetyValidation?: EquivalentSafetyValidation | null; // 等效安全驗證（後續 task 填值）
 }
@@ -356,6 +290,9 @@ export interface WindowIntegrity {
 
 /** 執行期狀態（get_benchmark_state） */
 export interface BenchmarkState {
+  currentPhase?: BenchmarkPhase | null;
+  gpuBusy?: boolean;
+  currentTarget?: CoreTarget | null;
   status: SessionStatus;
   sessionId: string | null;
   currentLp: number | null;
@@ -389,3 +326,19 @@ export interface StorageInfo {
   totalBytes: number;
   sessionCount: number;
 }
+
+export interface CoreTarget { coreId: number; lpIndices: number[] }
+export interface QuickSchedule {
+  screeningWarmupSecs: number; screeningSampleSecs: number;
+  retestWarmupSecs: number; retestSampleSecs: number;
+  candidateCaptures: number; estimatedMinSecs: number; estimatedMaxSecs: number;
+}
+export interface CoreCapture { target: CoreTarget; metrics: LpResult; score: number }
+export type RankingStatus = 'Consistent' | 'Close' | 'Reversed' | 'SingleCandidate' | 'Insufficient';
+export interface QuickResult {
+  methodVersion: number; candidates: CoreTarget[]; seed: number;
+  screeningOrder: number[]; retestOrder: number[]; schedule: QuickSchedule;
+  screening: CoreCapture[]; retest: CoreCapture[];
+  status: RankingStatus; relativeGapPct: number | null;
+}
+export interface MigrationStatus { noticeRequired: boolean; cleanupError: string | null }
