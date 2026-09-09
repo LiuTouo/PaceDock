@@ -6,6 +6,7 @@
   import { coreLabel, policyIndices } from '../lib/core';
   import type { AffinityPolicy, BenchmarkConfig, CoreCapture, CoreTarget, GpuDevice, QuickSchedule, SessionDetail, SessionSummary } from '../lib/types';
   import ConfirmDialog from '../components/ConfirmDialog.svelte';
+  import GpuInterrupts from '../components/GpuInterrupts.svelte';
 
   let devices = $state<GpuDevice[]>([]);
   let targets = $state<CoreTarget[]>([]);
@@ -148,6 +149,7 @@
       <div><strong>{$t('quick.currentPolicy')} — {devices.find(d => d.instanceId === gpu)?.friendlyName ?? gpu}</strong><p>{policyText}</p><small>DevicePolicy: {policy?.devicePolicy.bytes?.join(', ') ?? '—'}</small></div>
       <button disabled={locked} onclick={() => action = 'restore'}>{$t('quick.restore')}</button>
     </section>
+    <GpuInterrupts instanceId={gpu} locked={!!locked} />
     {#if section === 'test'}
       <section class="panel">
         <label class="field">GPU<select bind:value={gpu} disabled={locked}>{#each devices as device}<option value={device.instanceId}>{device.friendlyName}</option>{/each}</select></label>

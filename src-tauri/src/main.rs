@@ -10,6 +10,7 @@ mod commands;
 mod config;
 mod error;
 mod gpu;
+mod gpu_interrupts;
 mod model;
 mod process;
 mod state_auth;
@@ -131,6 +132,7 @@ fn main() {
             benchmark::ipc::delete_benchmark_session,
             benchmark::ipc::get_benchmark_storage_info,
             benchmark::ipc::get_gpu_affinity_policy,
+            gpu_interrupts::sample_gpu_interrupts,
             benchmark::ipc::restore_previous_gpu_affinity,
             benchmark::ipc::start_gpu_benchmark,
             benchmark::ipc::cancel_benchmark,
