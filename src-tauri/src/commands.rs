@@ -78,12 +78,7 @@ pub fn set_timer_exempt(
     let mut cfg = state.config.write().map_err(|e| e.to_string())?;
     let mut candidate = cfg.clone();
     if enabled {
-        if !candidate
-            .settings
-            .timer_exempt_programs
-            .iter()
-            .any(|p| *p == exe)
-        {
+        if !candidate.settings.timer_exempt_programs.contains(&exe) {
             candidate.settings.timer_exempt_programs.push(exe);
         }
     } else {

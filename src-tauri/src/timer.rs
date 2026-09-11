@@ -324,10 +324,9 @@ pub struct TimerExemptEntry {
 /// 對行程施加/還原 timer 節流豁免（即時生效）。`exe_name` 僅在 enabled 時作
 /// 黑名單把關用（不得對 shell/自身行程開 handle）。
 pub fn set_exempt(pid: u32, exe_name: &str, enabled: bool) -> Result<(), String> {
-    if enabled {
-        if pid == std::process::id() || crate::benchmark::capture::is_blacklisted(exe_name) {
-            return Err(codes::TIMER_EXEMPT_BLOCKED.to_string());
-        }
+    if enabled && (pid == std::process::id() || crate::benchmark::capture::is_blacklisted(exe_name))
+    {
+        return Err(codes::TIMER_EXEMPT_BLOCKED.to_string());
     }
     unsafe {
         let Ok(h) = OpenProcess(PROCESS_SET_LIMITED_INFORMATION, false, pid) else {
@@ -401,7 +400,7 @@ pub fn set_exempt_program(exe_name: &str, enabled: bool) -> Result<(), String> {
     {
         let mut list = PROGRAMS.write().unwrap_or_else(|p| p.into_inner());
         if enabled {
-            if !list.iter().any(|p| *p == exe) {
+            if !list.contains(&exe) {
                 list.push(exe.clone());
             }
         } else {
@@ -440,7 +439,7 @@ pub fn apply_exempts_once() {
     let procs = crate::process::enumerate_processes();
     let live: std::collections::HashSet<u32> = procs.iter().map(|(pid, _)| *pid).collect();
     for (pid, name) in &procs {
-        if !list.iter().any(|p| p == name) {
+        if !list.contains(name) {
             continue;
         }
         let known = exempts()
