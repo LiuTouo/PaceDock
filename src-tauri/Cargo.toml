@@ -1,6 +1,6 @@
 [package]
 name = "frameanchor"
-version = "0.2.9"
+version = "0.3.0"
 description = "FrameAnchor - GPU physical-core tuning tool"
 edition = "2021"
 rust-version = "1.80"
@@ -58,6 +58,7 @@ features = [
     "Win32_Devices_DeviceAndDriverInstallation",
     "Win32_System_Registry",
     "Win32_System_Power",
+    "Win32_System_LibraryLoader",
 ]
 
 [profile.release]

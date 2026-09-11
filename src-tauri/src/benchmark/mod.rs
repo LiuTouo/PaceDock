@@ -5,6 +5,7 @@
 use serde::{Deserialize, Serialize};
 
 pub mod assets;
+pub mod capture;
 pub mod env;
 pub mod ipc;
 pub mod manager;

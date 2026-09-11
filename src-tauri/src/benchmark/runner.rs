@@ -1906,7 +1906,7 @@ fn with_fps_cap(args: &[String], cap: u32) -> Vec<String> {
 /// ETW events lost（circular buffer 溢位、導致 capture 無效）的機率。
 /// `display` 追蹤必須保留：PresentMon 需要 display present 事件作為 frame 來源，
 /// 加 `--no_track_display` 會使 CSV 完全無法建立。校準與正式 capture 共用此命令。
-fn presentmon_command(
+pub(crate) fn presentmon_command(
     sample_secs: u32,
     buffer: u32,
     pid: u32,
@@ -2225,7 +2225,7 @@ fn persist_capture_diagnostics(csv: &Path, round: u32, lp: u32, diag: &CaptureDi
 /// 涵蓋 "123 ETW events lost"、"Lost 123 ETW events"、"ETW events were lost"
 /// 等變體。排除否定/零值表述（"no/not/0/without … lost"、"lost 0 …"），
 /// 避免 "0 ETW events lost"、"no events were lost" 誤判為溢失。
-fn stderr_has_etw_loss(stderr: &str) -> bool {
+pub(crate) fn stderr_has_etw_loss(stderr: &str) -> bool {
     let s = stderr.to_ascii_lowercase();
     if !s.contains("lost") || !(s.contains("event") || s.contains("etw")) {
         return false;
@@ -2317,9 +2317,9 @@ pub fn parse_overflowed_present_events(stderr: &str) -> Option<u64> {
 }
 
 /// 完整性評估結果。
-struct CaptureIntegrity {
+pub(crate) struct CaptureIntegrity {
     /// 穩定錯誤代碼（成功 = None）。
-    code: Option<String>,
+    pub(crate) code: Option<String>,
     /// 拒絕原因短標籤（"overflowed_present_events"/"etw_events_lost"/"missing"/
     /// "empty"/"duration"/"monotonic"；成功 = None）。
     reason: Option<String>,
@@ -2383,7 +2383,7 @@ fn validate_capture_integrity(
 
 /// 綜合完整性評估：overflow/ETW lost 優先（capture 無效，與 CSV 內容無關），
 /// 其次 CSV 完整性。純函式，供 capture 結果判定與診斷共用。
-fn assess_capture_integrity(
+pub(crate) fn assess_capture_integrity(
     csv: &Path,
     sample_secs: u32,
     overflowed: u64,

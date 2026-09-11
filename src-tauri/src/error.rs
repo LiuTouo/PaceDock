@@ -82,6 +82,18 @@ pub mod codes {
         "BENCHMARK_EQUIVALENT_REFERENCE_CHANGED";
     /// 目前 GPU policy 無單一鎖定核心（無 reference 可比對）。
     pub const BENCHMARK_EQUIVALENT_NO_REFERENCE: &str = "BENCHMARK_EQUIVALENT_NO_REFERENCE";
+    // ── 高精度計時器（timer.rs）──
+    /// NtSetTimerResolution 請求/釋放失敗（ntdll 符號缺失或 NTSTATUS 錯誤）。
+    pub const TIMER_RESOLUTION_FAILED: &str = "TIMER_RESOLUTION_FAILED";
+    /// timer 節流豁免施加持敗（開 handle 失敗 / SetProcessInformation 失敗）。
+    pub const TIMER_EXEMPT_FAILED: &str = "TIMER_EXEMPT_FAILED";
+    /// timer 節流豁免被黑名單/自身行程防線擋下。
+    pub const TIMER_EXEMPT_BLOCKED: &str = "TIMER_EXEMPT_BLOCKED";
+    // ── 實際遊戲量測（benchmark/capture.rs）──
+    /// 選定的遊戲視窗已消失（PID 不存在）。
+    pub const CAPTURE_GAME_NOT_FOUND: &str = "CAPTURE_GAME_NOT_FOUND";
+    /// 已有 capture / 基準測試進行中（共用 GPU 操作排他鎖）。
+    pub const CAPTURE_ALREADY_RUNNING: &str = "CAPTURE_ALREADY_RUNNING";
 }
 
 #[derive(Error, Debug, Clone, Copy, PartialEq, Eq)]

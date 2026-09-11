@@ -26,11 +26,81 @@ pub fn get_settings(state: State<Arc<AppState>>) -> Settings {
 #[tauri::command]
 pub fn save_settings(state: State<Arc<AppState>>, settings: Settings) -> Result<(), String> {
     let mut cfg = state.config.write().map_err(|e| e.to_string())?;
+    let timer_changed = cfg.settings.high_precision_timer != settings.high_precision_timer;
+    let enable_timer = settings.high_precision_timer;
     let mut candidate = cfg.clone();
     candidate.settings = settings;
     config::save(&candidate)?;
     *cfg = candidate;
+    // 套用失敗時回 Err：前端既有 rollback 會還原 checkbox；下次啟動會再嘗試
+    if timer_changed {
+        crate::timer::apply(enable_timer)?;
+    }
     Ok(())
+}
+
+/// 高精度計時器狀態（開關 + 實際生效解析回讀，含支援區間 — 對應 Clockres 三值）
+#[tauri::command]
+pub fn get_timer_status() -> crate::model::TimerStatus {
+    let intervals = crate::timer::intervals();
+    crate::model::TimerStatus {
+        enabled: crate::timer::enabled(),
+        current_resolution_ms: intervals.map(|(_, _, cur)| cur as f64 / 10_000.0),
+        // NtQueryTimerResolution 的 min = 最細值、max = 最粗值
+        min_interval_ms: intervals.map(|(min, _, _)| min as f64 / 10_000.0),
+        max_interval_ms: intervals.map(|(_, max, _)| max as f64 / 10_000.0),
+    }
+}
+
+/// 全域請求政策登錄值狀態（None = 未設定 = 系統預設 per-process 語意）
+#[tauri::command]
+pub fn get_timer_global_enabled() -> Result<Option<bool>, String> {
+    crate::timer::global_requests_enabled()
+}
+
+/// 一鍵寫入/刪除全域請求政策登錄值（寫入後需重開機生效）
+#[tauri::command]
+pub fn set_timer_global_enabled(enabled: bool) -> Result<(), String> {
+    crate::timer::set_global_requests(enabled)
+}
+
+/// 對程式（exe 檔名為鍵）開啟/關閉持久化 timer 節流豁免：寫入 config，
+/// 並立即對執行中同名行程施加/還原；遊戲重啟、FrameAnchor 重啟後自動重套。
+#[tauri::command]
+pub fn set_timer_exempt(
+    state: State<Arc<AppState>>,
+    exe_name: String,
+    enabled: bool,
+) -> Result<(), String> {
+    // 先施加 runtime（黑名單擋在此失敗，不會寫入 config）
+    crate::timer::set_exempt_program(&exe_name, enabled)?;
+    let exe = exe_name.to_lowercase();
+    let mut cfg = state.config.write().map_err(|e| e.to_string())?;
+    let mut candidate = cfg.clone();
+    if enabled {
+        if !candidate
+            .settings
+            .timer_exempt_programs
+            .iter()
+            .any(|p| *p == exe)
+        {
+            candidate.settings.timer_exempt_programs.push(exe);
+        }
+    } else {
+        candidate
+            .settings
+            .timer_exempt_programs
+            .retain(|p| *p != exe);
+    }
+    config::save(&candidate)?;
+    *cfg = candidate;
+    Ok(())
+}
+
+/// 目前豁免清單（附存活狀態）
+#[tauri::command]
+pub fn list_timer_exempts() -> Vec<crate::timer::TimerExemptEntry> {
+    crate::timer::list_exempts()
 }
 
 #[tauri::command]

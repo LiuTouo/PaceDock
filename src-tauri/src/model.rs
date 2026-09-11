@@ -44,6 +44,12 @@ pub struct Settings {
     pub poll_interval_ms: u64,
     #[serde(default)]
     pub show_advanced_priorities: bool,
+    /// 高精度計時器：常駐請求 0.5 ms timer resolution（per-process 語意，見 timer.rs）
+    #[serde(default)]
+    pub high_precision_timer: bool,
+    /// 高精度計時器：遊戲節流豁免名單（小寫 exe 檔名；執行中同名行程自動套用）
+    #[serde(default)]
+    pub timer_exempt_programs: Vec<String>,
     #[serde(default = "default_theme")]
     pub theme: Theme,
 }
@@ -61,6 +67,21 @@ fn default_poll_interval() -> u64 {
     1000
 }
 
+/// 高精度計時器狀態（get_timer_status 回傳）
+#[derive(Serialize, Clone, Debug, Default)]
+#[serde(rename_all = "camelCase")]
+pub struct TimerStatus {
+    pub enabled: bool,
+    /// 實際生效解析（ms）；查詢失敗為 None
+    pub current_resolution_ms: Option<f64>,
+    /// 最細支援解析（ms，Clockres 的 "Minimum timer interval"，通常 0.5）
+    #[serde(default)]
+    pub min_interval_ms: Option<f64>,
+    /// 最粗支援解析（ms，Clockres 的 "Maximum timer interval"，通常 15.625）
+    #[serde(default)]
+    pub max_interval_ms: Option<f64>,
+}
+
 impl Default for Settings {
     fn default() -> Self {
         Self {
@@ -70,6 +91,8 @@ impl Default for Settings {
             close_to_tray: true,
             poll_interval_ms: default_poll_interval(),
             show_advanced_priorities: false,
+            high_precision_timer: false,
+            timer_exempt_programs: Vec::new(),
             theme: default_theme(),
         }
     }
@@ -330,6 +353,21 @@ mod tests {
         assert!(json.contains("\"recommendation\""));
         assert!(json.contains("\"FullPath\""));
         assert!(json.contains("\"High\""));
+    }
+
+    /// 舊 config 沒有 timerExemptPrograms 欄位 → 空 vec;填入後 roundtrip 保留
+    #[test]
+    fn timer_exempt_programs_roundtrip() {
+        let json = r#"{ "version": 1, "settings": {} }"#;
+        let cfg: Config = serde_json::from_str(json).unwrap();
+        assert!(cfg.settings.timer_exempt_programs.is_empty());
+
+        let mut cfg = Config::default();
+        cfg.settings.timer_exempt_programs = vec!["game.exe".into()];
+        let json = serde_json::to_string(&cfg).unwrap();
+        assert!(json.contains("\"timerExemptPrograms\""));
+        let back: Config = serde_json::from_str(&json).unwrap();
+        assert_eq!(back.settings.timer_exempt_programs, vec!["game.exe"]);
     }
 
     /// 舊 config 沒有 theme 欄位 → 預設為 Dark

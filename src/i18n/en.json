@@ -5,6 +5,7 @@
   },
   "nav": {
     "gpuTest": "GPU tuning",
+    "timer": "High-precision timer",
     "settings": "Settings"
   },
   "settings": {
@@ -21,6 +22,10 @@
     "themeLight": "Light",
     "appearance": "Appearance",
     "showAdvanced": "Show advanced priorities (I/O / Memory) in the rule editor",
+    "highPrecisionTimer": "High-precision timer",
+    "highPrecisionTimerEnable": "Request 0.5 ms timer resolution continuously",
+    "highPrecisionTimerHint": "Requests 0.5 ms timer resolution via ntdll. Note: since Windows 10 2004, the request is per-process — only FrameAnchor's own timers are guaranteed; whether the global tick is raised is decided by the system. Global effect requires the registry value GlobalTimerResolutionRequests=1 (this app never writes it).",
+    "timerCurrent": "Current effective resolution: {value} ms",
     "updateSection": "Update & Version",
     "data": "Data",
     "about": "About",
@@ -44,6 +49,29 @@
     "bannerText": "FrameAnchor {version} is available (currently {current}).",
     "bannerInstall": "Install",
     "bannerDismiss": "Dismiss"
+  },
+  "timer": {
+    "statusTitle": "Timer status",
+    "detect": "Detect now",
+    "detectHint": "Reads the currently effective system-wide timer resolution (the same three values as Clockres). Not refreshed automatically.",
+    "stateOn": "Request active — FrameAnchor holds a 0.5 ms request.",
+    "stateOff": "No standing request held.",
+    "range": "Supported range: finest {min} ms – coarsest {max} ms (same values as Clockres)",
+    "globalNote": "This reflects FrameAnchor only. To give the whole system (including games) 0.5 ms, enable Global mode below.",
+    "globalTitle": "Global mode (registry)",
+    "globalHint": "Writes GlobalTimerResolutionRequests=1, restoring pre-Win10-2004 global semantics: FrameAnchor's 0.5 ms request lifts the whole system tick (games included). The value is only a policy gate — the tick falls back automatically when this app closes; delete the value to fully revert.",
+    "globalStatusOn": "GlobalTimerResolutionRequests = 1 (set)",
+    "globalStatusOff": "Not set (system default per-process semantics)",
+    "globalEnable": "Enable global semantics",
+    "globalReboot": "Written — takes effect after a reboot.",
+    "exemptTitle": "Game throttle exemption",
+    "exemptHint": "Windows 11 throttles backgrounded/occluded processes' timer resolution back to 15.6 ms. Games on the list are exempt: their 0.5 ms survives alt-tab or occlusion. The list persists — exemptions are re-applied automatically when a game restarts (new PID) and after FrameAnchor restarts; FrameAnchor reverts all exemptions on exit.",
+    "exemptPick": "Select a game window",
+    "exemptAdd": "Add exemption",
+    "exemptRemove": "Remove",
+    "exemptNone": "The list is empty. Add a game and FrameAnchor will lift timer throttling whenever it runs.",
+    "exemptNotRunning": "not running",
+    "exemptNote": "The exemption only prevents throttling — it does not grant 0.5 ms by itself. The game must request its own resolution, or Global mode must be on."
   },
   "errors": {
     "ACCESS_DENIED": "Access denied (possibly protected by anti-cheat)",
@@ -99,6 +127,11 @@
     "BENCHMARK_EQUIVALENT_VALIDATION_REQUIRED": "Run the safety validation first — the equivalent pair has not been verified against the current GPU state",
     "BENCHMARK_EQUIVALENT_REFERENCE_CHANGED": "The GPU affinity policy changed since validation — re-run the safety validation",
     "BENCHMARK_EQUIVALENT_NO_REFERENCE": "No single-locked core is currently applied — cannot determine a reference to validate against",
+    "TIMER_RESOLUTION_FAILED": "Failed to request the high-precision timer (unsupported or blocked by policy)",
+    "TIMER_EXEMPT_FAILED": "Failed to set the timer throttle exemption on this process (gone or access denied)",
+    "TIMER_EXEMPT_BLOCKED": "This process is not allowed (system/own processes cannot be configured)",
+    "CAPTURE_GAME_NOT_FOUND": "The selected game window has closed or no longer exists",
+    "CAPTURE_ALREADY_RUNNING": "A measurement or benchmark is already running",
     "unknown": "Unknown error",
     "anticheatNote": "This game is anti-cheat protected. Keep FrameAnchor running before launching the game; if it's already running, restart the game."
   },
@@ -195,5 +228,21 @@
       "cancelling": "Cancelling",
       "calibrating": "Calibrating"
     }
+  },
+  "measure": {
+    "tab": "Game measurement",
+    "hint": "Attaches PresentMon to a running game (ETW-based; no process handles of the game are opened). Play normally for a while, then compare 1% lows before and after tuning. Anti-cheat tools generally tolerate this, but safety cannot be guaranteed for every game.",
+    "game": "Game window",
+    "refresh": "Rescan windows",
+    "duration": "Duration (seconds)",
+    "start": "Start measurement",
+    "running": "Measuring — keep playing as usual",
+    "cancel": "Cancel measurement",
+    "compare": "Before / after comparison",
+    "compareHint": "Δ: FPS rows show relative difference (%); MAD / Spike / Frames rows show absolute difference. Game measurements must not be compared against synthetic benchmark sessions (different workload).",
+    "noGames": "No measurable game window found",
+    "noCaptures": "No measurements yet",
+    "delete": "Delete selected record",
+    "deleteConfirm": "Permanently delete this measurement and its raw data?"
   }
 }

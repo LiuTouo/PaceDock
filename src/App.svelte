@@ -4,6 +4,7 @@
   import { locale, t } from 'svelte-i18n';
   import GpuTest from './pages/GpuTest.svelte';
   import SettingsPage from './pages/Settings.svelte';
+  import TimerPage from './pages/Timer.svelte';
   import ConfirmDialog from './components/ConfirmDialog.svelte';
   import * as ipc from './lib/ipc';
   import {
@@ -18,7 +19,7 @@
   import type { BenchmarkProgress, UpdateState } from './lib/types';
   import { checkForUpdates, installUpdate } from './lib/updater';
 
-  type Tab = 'gpu' | 'settings';
+  type Tab = 'gpu' | 'timer' | 'settings';
   let tab = $state<Tab>('gpu');
 
   // 基準測試執行中 → 鎖定導覽，不能離開 GPU 測試頁
@@ -120,6 +121,11 @@
       icon: 'M21 3H3v18h18V3zm-2 16H5V5h14v14zm-4.5-7h-3v3h-2v-3h-3V9h3V6h2v3h3v2z',
     },
     {
+      tab: 'timer',
+      label: 'timer',
+      icon: 'M11.99 2C6.47 2 2 6.48 2 12s4.47 10 9.99 10C17.52 22 22 17.52 22 12S17.52 2 11.99 2zM12 20c-4.42 0-8-3.58-8-8s3.58-8 8-8 8 3.58 8 8-3.58 8-8 8zm.5-13H11v6l5.25 3.15.75-1.23-4.5-2.67V7z',
+    },
+    {
       tab: 'settings',
       label: 'settings',
       icon: 'M12 15.5A3.5 3.5 0 018.5 12 3.5 3.5 0 0112 8.5a3.5 3.5 0 013.5 3.5 3.5 3.5 0 01-3.5 3.5zm7.43-2.53c.04-.32.07-.64.07-.97 0-.33-.03-.66-.07-.98l2.11-1.65c.19-.15.24-.42.12-.64l-2-3.46a.5.5 0 00-.61-.22l-2.49 1c-.52-.4-1.08-.73-1.69-.98l-.38-2.65A.49.49 0 0014 2h-4c-.25 0-.46.18-.49.42l-.38 2.65c-.61.25-1.17.59-1.69.98l-2.49-1a.5.5 0 00-.61.22l-2 3.46c-.13.22-.07.49.12.64l2.11 1.65c-.04.32-.07.65-.07.98 0 .33.03.66.07.98l-2.11 1.65c-.19.15-.24.42-.12.64l2 3.46a.5.5 0 00.61.22l2.49-1c.52.4 1.08.73 1.69.98l.38 2.65c.03.24.24.42.49.42h4c.25 0 .46-.18.49-.42l.38-2.65c.61-.25 1.17-.59 1.69-.98l2.49 1c.23.09.49 0 .61-.22l2-3.46c.13-.22.07-.49-.12-.64l-2.11-1.65zM12 17c-2.76 0-5-2.24-5-5s2.24-5 5-5 5 2.24 5 5-2.24 5-5 5z',
@@ -190,6 +196,8 @@
     <div class="page">
       {#if tab === 'gpu'}
         <GpuTest />
+      {:else if tab === 'timer'}
+        <TimerPage />
       {:else}
         <SettingsPage />
       {/if}

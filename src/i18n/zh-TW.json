@@ -5,6 +5,7 @@
   },
   "nav": {
     "gpuTest": "GPU 調校",
+    "timer": "高精度計時器",
     "settings": "設定"
   },
   "settings": {
@@ -21,6 +22,10 @@
     "themeLight": "淺色",
     "appearance": "外觀",
     "showAdvanced": "在規則編輯器顯示進階優先級（I/O / 記憶體）",
+    "highPrecisionTimer": "高精度計時器",
+    "highPrecisionTimerEnable": "常駐請求 0.5 ms 計時解析",
+    "highPrecisionTimerHint": "以 ntdll 請求 0.5 ms timer resolution。注意：Windows 10 2004 起此請求僅對 FrameAnchor 自身行程保證生效，是否抬升全域解析由系統決定；全域生效需自行設定登錄值 GlobalTimerResolutionRequests=1（本程式不會寫入）。",
+    "timerCurrent": "目前生效解析：{value} ms",
     "updateSection": "更新與版本",
     "data": "資料",
     "about": "關於",
@@ -44,6 +49,29 @@
     "bannerText": "FrameAnchor {version} 已發佈（目前版本 {current}）。",
     "bannerInstall": "安裝",
     "bannerDismiss": "稍後"
+  },
+  "timer": {
+    "statusTitle": "計時器狀態",
+    "detect": "手動偵測",
+    "detectHint": "按下後讀取目前全系統生效的計時器解析（與 Clockres 相同三值），不會自動更新。",
+    "stateOn": "常駐請求生效中 — FrameAnchor 正持有 0.5 ms 請求。",
+    "stateOff": "未持有常駐請求。",
+    "range": "支援區間：最細 {min} ms ～ 最粗 {max} ms（與 Clockres 顯示一致）",
+    "globalNote": "此值僅反映 FrameAnchor 自身。要讓全系統（含遊戲）吃到 0.5 ms，請在下方啟用全域模式。",
+    "globalTitle": "全域模式（登錄值）",
+    "globalHint": "寫入 GlobalTimerResolutionRequests=1，恢復 Win10 2004 前的全域語意：FrameAnchor 的 0.5 ms 請求會抬升全系統 tick（含遊戲）。此值只是政策門，程式關閉後 tick 自動回落原值；刪除登錄值即可完全還原。",
+    "globalStatusOn": "GlobalTimerResolutionRequests = 1（已設定）",
+    "globalStatusOff": "未設定（系統預設 per-process 語意）",
+    "globalEnable": "啟用全域語意",
+    "globalReboot": "已寫入，重開機後生效。",
+    "exemptTitle": "遊戲節流豁免",
+    "exemptHint": "Win11 會把背景化/被遮蔽視窗行程的 timer 解析節流回 15.6 ms。加入名單的遊戲會解除節流：alt-tab 或被蓋住時，其 0.5 ms 不會被打回。名單會持久化 — 遊戲重啟（新 PID）與 FrameAnchor 重啟後都會自動重新套用；關閉 FrameAnchor 時會先還原全部豁免。",
+    "exemptPick": "選擇遊戲視窗",
+    "exemptAdd": "加入豁免",
+    "exemptRemove": "移除",
+    "exemptNone": "名單是空的。加入遊戲後，FrameAnchor 會在其執行時自動解除 timer 節流。",
+    "exemptNotRunning": "未執行",
+    "exemptNote": "豁免只防止節流，不主動給 0.5 ms — 遊戲自己有請求（或全域模式已啟用）才有解析可保。"
   },
   "errors": {
     "ACCESS_DENIED": "存取被拒（可能受反作弊保護）",
@@ -99,6 +127,11 @@
     "BENCHMARK_EQUIVALENT_VALIDATION_REQUIRED": "請先執行安全驗證——等效配對尚未對目前的 GPU 狀態驗證",
     "BENCHMARK_EQUIVALENT_REFERENCE_CHANGED": "GPU 親和性策略自驗證後已變更——請重新執行安全驗證",
     "BENCHMARK_EQUIVALENT_NO_REFERENCE": "目前未套用任何單一鎖定核心——無法決定要驗證的參考基準",
+    "TIMER_RESOLUTION_FAILED": "高精度計時器請求失敗（系統不支援或被政策阻擋）",
+    "TIMER_EXEMPT_FAILED": "無法對該行程設定 timer 節流豁免（行程不存在或拒絕存取）",
+    "TIMER_EXEMPT_BLOCKED": "此行程不在允許清單（系統/自身行程不可設定）",
+    "CAPTURE_GAME_NOT_FOUND": "選定的遊戲視窗已關閉或不存在",
+    "CAPTURE_ALREADY_RUNNING": "已有量測或基準測試進行中",
     "unknown": "未知錯誤",
     "anticheatNote": "此遊戲受反作弊保護。請讓 FrameAnchor 在遊戲啟動前執行；若遊戲已在運行，請重啟遊戲。"
   },
@@ -195,5 +228,21 @@
       "cancelling": "取消",
       "calibrating": "校準"
     }
+  },
+  "measure": {
+    "tab": "遊戲量測",
+    "hint": "把 PresentMon 掛到執行中的遊戲量測（ETW 方式，不開啟遊戲行程控制代碼）。建議照常遊玩至少一段時間後，比較調校前後的 1% low。反作弊工具通常不會因此誤判，但無法保證所有遊戲皆安全。",
+    "game": "遊戲視窗",
+    "refresh": "重新掃描視窗",
+    "duration": "量測秒數",
+    "start": "開始量測",
+    "running": "量測進行中（可照常遊玩）",
+    "cancel": "取消量測",
+    "compare": "調校前後比較",
+    "compareHint": "Δ：FPS 列為相對差異 %；MAD / Spike / Frames 列為絕對差異。遊戲量測不可與合成測試紀錄互比（workload 不同）。",
+    "noGames": "找不到可量測的遊戲視窗",
+    "noCaptures": "尚無量測紀錄",
+    "delete": "刪除所選紀錄",
+    "deleteConfirm": "永久刪除此量測紀錄與其原始資料？"
   }
 }

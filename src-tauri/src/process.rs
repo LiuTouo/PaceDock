@@ -12,6 +12,33 @@ fn utf16_slice_to_string(s: &[u16]) -> String {
     String::from_utf16_lossy(&s[..end])
 }
 
+/// 列舉全系統行程為 `(pid, 小寫 exe 檔名)`。快照失敗回空 vec（呼叫端自行降級）。
+pub fn enumerate_processes() -> Vec<(u32, String)> {
+    unsafe {
+        let Ok(snap) = CreateToolhelp32Snapshot(TH32CS_SNAPPROCESS, 0) else {
+            return Vec::new();
+        };
+        let mut entry = PROCESSENTRY32W {
+            dwSize: std::mem::size_of::<PROCESSENTRY32W>() as u32,
+            ..Default::default()
+        };
+        let mut out: Vec<(u32, String)> = Vec::new();
+        if Process32FirstW(snap, &mut entry).is_ok() {
+            loop {
+                out.push((
+                    entry.th32ProcessID,
+                    utf16_slice_to_string(&entry.szExeFile).to_lowercase(),
+                ));
+                if Process32NextW(snap, &mut entry).is_err() {
+                    break;
+                }
+            }
+        }
+        let _ = CloseHandle(snap);
+        out
+    }
+}
+
 pub fn kill_orphan_webviews() {
     use windows::Wdk::System::Threading::{NtQueryInformationProcess, PROCESSINFOCLASS};
     use windows::Win32::System::Diagnostics::Debug::ReadProcessMemory;
@@ -25,34 +52,20 @@ pub fn kill_orphan_webviews() {
     );
     let self_pid = std::process::id();
 
+    let mut webviews: Vec<u32> = Vec::new();
+    let mut other_host_alive = false;
+    for (pid, name) in enumerate_processes() {
+        if name == "frameanchor.exe" && pid != self_pid {
+            other_host_alive = true;
+        } else if name == "msedgewebview2.exe" {
+            webviews.push(pid);
+        }
+    }
+    if other_host_alive {
+        return; // 有其他實例在跑：它的 webview 是活的，不該動
+    }
+
     unsafe {
-        let snap = match CreateToolhelp32Snapshot(TH32CS_SNAPPROCESS, 0) {
-            Ok(h) => h,
-            Err(_) => return,
-        };
-        let mut entry = PROCESSENTRY32W {
-            dwSize: std::mem::size_of::<PROCESSENTRY32W>() as u32,
-            ..Default::default()
-        };
-        let mut webviews: Vec<u32> = Vec::new();
-        let mut other_host_alive = false;
-        if Process32FirstW(snap, &mut entry).is_ok() {
-            loop {
-                let name = utf16_slice_to_string(&entry.szExeFile).to_lowercase();
-                if name == "frameanchor.exe" && entry.th32ProcessID != self_pid {
-                    other_host_alive = true;
-                } else if name == "msedgewebview2.exe" {
-                    webviews.push(entry.th32ProcessID);
-                }
-                if Process32NextW(snap, &mut entry).is_err() {
-                    break;
-                }
-            }
-        }
-        let _ = CloseHandle(snap);
-        if other_host_alive {
-            return; // 有其他實例在跑：它的 webview 是活的，不該動
-        }
         for pid in webviews {
             // 讀 cmdline 比對 user-data-dir
             let cmdline = (|| {

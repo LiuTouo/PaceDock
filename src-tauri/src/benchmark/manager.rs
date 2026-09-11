@@ -465,6 +465,9 @@ const OP_BENCHMARK: u8 = 1;
 const OP_MUTATION: u8 = 2;
 const OP_VALIDATION: u8 = 3;
 const OP_UPDATE: u8 = 4;
+/// 遊戲量測（capture.rs）：PresentMon ETW attach，與其他 GPU 操作互斥
+/// （`--stop_existing_session` 會毀掉執行中 benchmark 的 session）。
+const OP_CAPTURE: u8 = 5;
 
 /// RAII 釋放：drop 時把 reservation 歸零。背景 benchmark 的 guard 會被移入
 /// runner 的 closure，直到 runner 終結（寫完最終 status 後）才 drop，確保
@@ -530,6 +533,9 @@ impl BenchmarkManager {
     }
     pub(crate) fn reserve_update(&self) -> Result<GpuOperationGuard, String> {
         self.reserve(OP_UPDATE)
+    }
+    pub(crate) fn reserve_capture(&self) -> Result<GpuOperationGuard, String> {
+        self.reserve(OP_CAPTURE)
     }
     pub fn begin_update(&self) -> Result<(), String> {
         self.reservation
@@ -1408,7 +1414,6 @@ fn list_importable(
 }
 
 /// 由精簡 LE 單 LP mask bytes 反解 LP index（單一位元）；非單一位元 → None。
-#[cfg(test)]
 pub fn mask_bytes_to_lp(bytes: Option<&[u8]>) -> Option<u32> {
     let bytes = bytes?;
     if bytes.is_empty() || bytes.len() > 8 {
@@ -1613,7 +1618,7 @@ fn resolve_and_verify_assets(app: &AppHandle) -> Result<BenchmarkAssets, String>
 /// 相對路徑（含 `resources/` 前綴）安裝到該目錄 → 實際位置是 `resources/benchmark`。
 /// 不接受 caller 指定 executable 路徑：spawn 一律限縮到內建資源
 /// （digest 內嵌主程式驗證,見 `assets::verify`）。
-fn resolve_assets(app: &AppHandle) -> Result<BenchmarkAssets, String> {
+pub(crate) fn resolve_assets(app: &AppHandle) -> Result<BenchmarkAssets, String> {
     let dir = app
         .path()
         .resolve("resources/benchmark", tauri::path::BaseDirectory::Resource)

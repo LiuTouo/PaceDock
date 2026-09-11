@@ -15,6 +15,7 @@ mod model;
 mod process;
 mod state_auth;
 mod syspath;
+mod timer;
 mod topology;
 mod update;
 
@@ -76,6 +77,16 @@ fn main() {
         }
     };
 
+    // 高精度計時器：依設定套用（失敗僅 log，不阻啟動）；並註冊喚醒重發
+    if let Err(e) = timer::apply(cfg.settings.high_precision_timer) {
+        log::warn!("高精度計時器啟動套用失敗: {e}");
+    }
+    timer::init_power_watch();
+    // 遊戲節流豁免：灌入持久化名單並啟動輪詢（首輪立即套用執行中遊戲，
+    // 之後每 3 秒對新啟動的遊戲自動重套）
+    timer::init_programs(cfg.settings.timer_exempt_programs.clone());
+    timer::init_exempt_watch();
+
     // 基準測試管理者：GPU 控制一律透過注入的 backend（啟動時嘗試 pending 還原）
     let backend: Arc<dyn gpu::GpuBackend> = Arc::new(gpu::RealGpuBackend::new());
     let benchmark = Arc::new(benchmark::manager::BenchmarkManager::new(backend));
@@ -115,6 +126,11 @@ fn main() {
             commands::end_update,
             commands::get_settings,
             commands::save_settings,
+            commands::get_timer_status,
+            commands::get_timer_global_enabled,
+            commands::set_timer_global_enabled,
+            commands::set_timer_exempt,
+            commands::list_timer_exempts,
             commands::open_data_folder,
             commands::get_update_info,
             commands::check_portable_update,
@@ -136,6 +152,11 @@ fn main() {
             benchmark::ipc::restore_previous_gpu_affinity,
             benchmark::ipc::start_gpu_benchmark,
             benchmark::ipc::cancel_benchmark,
+            benchmark::ipc::list_game_windows,
+            benchmark::ipc::start_game_capture,
+            benchmark::ipc::cancel_game_capture,
+            benchmark::ipc::list_game_captures,
+            benchmark::ipc::delete_game_capture,
         ])
         .on_window_event(|window, event| {
             if let tauri::WindowEvent::CloseRequested { api, .. } = event {
@@ -150,11 +171,24 @@ fn main() {
         .build(tauri::generate_context!())
         .expect("error while building FrameAnchor")
         .run(|app, event| {
-            if let tauri::RunEvent::ExitRequested { api, .. } = event {
-                if !app.state::<Arc<AppState>>().benchmark.can_exit() {
-                    api.prevent_exit();
-                    let _ = app.emit("gpu-exit-blocked", ());
+            match event {
+                tauri::RunEvent::ExitRequested { api, .. } => {
+                    if !app.state::<Arc<AppState>>().benchmark.can_exit() {
+                        api.prevent_exit();
+                        let _ = app.emit("gpu-exit-blocked", ());
+                    }
                 }
+                // 禮貌性釋放：OS 在行程結束時會自動復原 timer resolution 請求；
+                // 豁免無此保證（作用在別的行程上），正常退出時批次還原
+                tauri::RunEvent::Exit => {
+                    timer::revert_all_exempts();
+                    if timer::enabled() {
+                        if let Err(e) = timer::release() {
+                            log::warn!("退出釋放高精度計時器失敗: {e}");
+                        }
+                    }
+                }
+                _ => {}
             }
         });
 }

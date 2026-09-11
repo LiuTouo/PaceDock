@@ -1,10 +1,11 @@
 <script lang="ts">
   import { onMount } from 'svelte';
+  import { listen } from '@tauri-apps/api/event';
   import { locale, t } from 'svelte-i18n';
   import * as ipc from '../lib/ipc';
   import { benchmarkProgress, benchmarkState, topology, gpuOperationBusy } from '../lib/stores';
   import { coreLabel, policyIndices } from '../lib/core';
-  import type { AffinityPolicy, BenchmarkConfig, CoreCapture, CoreTarget, GpuDevice, QuickSchedule, SessionDetail, SessionSummary } from '../lib/types';
+  import type { AffinityPolicy, BenchmarkConfig, CoreCapture, CoreTarget, GameCaptureProgress, GameCaptureRecord, GameWindow, GpuDevice, QuickSchedule, SessionDetail, SessionSummary } from '../lib/types';
   import ConfirmDialog from '../components/ConfirmDialog.svelte';
   import GpuInterrupts from '../components/GpuInterrupts.svelte';
 
@@ -21,10 +22,17 @@
   let detail = $state<SessionDetail | null>(null);
   let policy = $state<AffinityPolicy | null>(null);
   let manual = $state<number | null>(null), chosen = $state<number | null>(null);
-  let section = $state<'test' | 'results'>('test');
+  let section = $state<'test' | 'results' | 'measure'>('test');
   let busy = $state(false), cancelSent = $state(false);
   let error = $state(''), notice = $state('');
-  let action = $state<'start' | 'apply' | 'manual' | 'restore' | 'delete' | null>(null);
+  let action = $state<'start' | 'apply' | 'manual' | 'restore' | 'delete' | 'delCapture' | null>(null);
+  // 遊戲量測狀態
+  let games = $state<GameWindow[]>([]);
+  let captureGame = $state('');
+  let captureDuration = $state(30);
+  let capturing = $state(false), capturePct = $state(0);
+  let captures = $state<GameCaptureRecord[]>([]);
+  let pickA = $state(''), pickB = $state('');
   let handled = $state('');
   const running = $derived($benchmarkState?.status === 'Running');
   const compact = $derived($benchmarkState?.windowLayout === 'CompactProgress');
@@ -53,7 +61,7 @@
   });
   const confirmTarget = $derived(targets.find(c => c.coreId === manual));
   const resultTarget = $derived(quick?.retest.find(c => c.target.coreId === chosen)?.target);
-  const confirmMessage = $derived(action === 'start' ? $t('quick.startConfirm') : action === 'restore' ? $t('quick.restoreConfirm') : action === 'delete' ? $t('quick.deleteConfirm') : `${$t('quick.applyConfirm')} ${action === 'manual' && confirmTarget ? label(confirmTarget) : resultTarget ? label(resultTarget) : ''}${action === 'manual' ? ` — ${$t('quick.untested')}` : ''}`);
+  const confirmMessage = $derived(action === 'start' ? $t('quick.startConfirm') : action === 'restore' ? $t('quick.restoreConfirm') : action === 'delete' ? $t('quick.deleteConfirm') : action === 'delCapture' ? $t('measure.deleteConfirm') : `${$t('quick.applyConfirm')} ${action === 'manual' && confirmTarget ? label(confirmTarget) : resultTarget ? label(resultTarget) : ''}${action === 'manual' ? ` — ${$t('quick.untested')}` : ''}`);
 
   $effect(() => {
     const request = config;
@@ -81,7 +89,16 @@
       void refreshHistory();
     }
   });
-  onMount(() => { void initialize(); });
+  onMount(() => {
+    void initialize();
+    let unlisten: (() => void) | null = null;
+    void listen<GameCaptureProgress>('game-capture-progress', (e) => {
+      if (e.payload.stage === 'done') { capturing = false; void refreshCaptures(); }
+      else if (e.payload.stage === 'cancelled') capturing = false;
+      else capturePct = e.payload.percentage;
+    }).then(fn => { unlisten = fn; });
+    return () => { unlisten?.(); };
+  });
   async function initialize() {
     try {
       [devices, targets] = await Promise.all([ipc.enumerateGpus(), ipc.getCoreCandidates()]);
@@ -89,7 +106,50 @@
       selected = targets.map(c => c.coreId);
       manual = targets[0]?.coreId ?? null;
       await refreshHistory();
+      await Promise.all([refreshGames(), refreshCaptures()]);
     } catch (e) { error = String(e); }
+  }
+  async function refreshGames() {
+    try {
+      games = await ipc.listGameWindows();
+      if (!games.some(g => String(g.pid) === captureGame)) captureGame = games[0] ? String(games[0].pid) : '';
+    } catch (e) { error = String(e); }
+  }
+  async function refreshCaptures() {
+    try { captures = await ipc.listGameCaptures(); } catch (e) { error = String(e); }
+  }
+  async function startCapture() {
+    const game = games.find(g => String(g.pid) === captureGame);
+    if (!game || capturing || locked) return;
+    capturing = true; capturePct = 0; error = ''; notice = '';
+    try {
+      const record = await ipc.startGameCapture(game.pid, game.title, captureDuration, gpu || null);
+      await refreshCaptures();
+      pickA = record.id;
+      if (!pickB || pickB === record.id) pickB = captures.find(c => c.id !== record.id)?.id ?? '';
+      notice = $t('quick.done');
+    } catch (e) {
+      if (String(e) !== 'cancelled') error = String(e);
+    } finally { capturing = false; }
+  }
+  type MetricRow = { label: string; a: number | null; b: number | null; relative: boolean };
+  const metricRows = $derived.by<MetricRow[]>(() => {
+    const a = captures.find(c => c.id === pickA);
+    const b = captures.find(c => c.id === pickB);
+    if (!a || !b || a.id === b.id) return [];
+    return [
+      { label: 'Avg FPS', a: a.metrics.avgFps, b: b.metrics.avgFps, relative: true },
+      { label: '1% low', a: a.metrics.p1Low, b: b.metrics.p1Low, relative: true },
+      { label: '0.1% low', a: a.metrics.p01Low, b: b.metrics.p01Low, relative: true },
+      { label: 'MAD %', a: a.metrics.frametimeMadPct, b: b.metrics.frametimeMadPct, relative: false },
+      { label: 'Spike %', a: a.metrics.spikeRatePct, b: b.metrics.spikeRatePct, relative: false },
+      { label: 'Frames', a: a.metrics.sampleCount, b: b.metrics.sampleCount, relative: false },
+    ];
+  });
+  function fmtVal(v: number | null) { return v == null ? '—' : Number.isInteger(v) ? String(v) : v.toFixed(1); }
+  function fmtDelta(row: MetricRow) {
+    if (row.a == null || row.b == null || row.b === 0) return '—';
+    return row.relative ? `${(((row.a - row.b) / row.b) * 100).toFixed(1)}%` : `${(row.a - row.b).toFixed(1)}`;
   }
   async function refreshHistory() { try { history = await ipc.listBenchmarkSessions(); } catch (e) { error = String(e); } }
   let loadSerial = 0;
@@ -116,6 +176,7 @@
       if (pending === 'manual' && manual !== null) await ipc.applyGpuCore(gpu, manual, null);
       if (pending === 'restore') await ipc.restorePreviousGpuAffinity();
       if (pending === 'delete' && detail) { await ipc.deleteBenchmarkSession(detail.summary.id); detail = null; chosen = null; await refreshHistory(); }
+      if (pending === 'delCapture' && pickA) { await ipc.deleteGameCapture(pickA); if (pickB === pickA) pickB = ''; pickA = ''; await refreshCaptures(); }
       if (pending !== 'start') notice = $t('quick.done');
       if (gpu) policy = await ipc.getGpuAffinityPolicy(gpu);
     } catch (e) { error = String(e); }
@@ -144,7 +205,7 @@
     </section>
   {:else}
     <header><h1>{$t('quick.title')}</h1><p class="hint">{$t('quick.scope')}</p></header>
-    <div class="tabs"><button class:active={section === 'test'} disabled={locked} onclick={() => section = 'test'}>{$t('quick.test')}</button><button class:active={section === 'results'} disabled={locked} onclick={() => section = 'results'}>{$t('quick.history')}</button></div>
+    <div class="tabs"><button class:active={section === 'test'} disabled={locked} onclick={() => section = 'test'}>{$t('quick.test')}</button><button class:active={section === 'results'} disabled={locked} onclick={() => section = 'results'}>{$t('quick.history')}</button><button class:active={section === 'measure'} disabled={locked} onclick={() => { section = 'measure'; void refreshGames(); }}>{$t('measure.tab')}</button></div>
     <section class="panel policy-row">
       <div><strong>{$t('quick.currentPolicy')} — {devices.find(d => d.instanceId === gpu)?.friendlyName ?? gpu}</strong><p>{policyText}</p><small>DevicePolicy: {policy?.devicePolicy.bytes?.join(', ') ?? '—'}</small></div>
       <button disabled={locked} onclick={() => action = 'restore'}>{$t('quick.restore')}</button>
@@ -175,6 +236,58 @@
         <h2>{$t('quick.manual')}</h2><p class="hint">{$t('quick.untested')}</p>
         <div class="start-row"><select aria-label={$t('quick.manual')} bind:value={manual}>{#each targets as target}<option value={target.coreId}>{label(target)}</option>{/each}</select><button disabled={locked || recovery || manual === null || !gpu} onclick={() => action = 'manual'}>{$t('quick.apply')}</button></div>
       </details>
+    {:else if section === 'measure'}
+      <section class="panel">
+        <p class="hint">{$t('measure.hint')}</p>
+        <div class="form-grid">
+          <label class="field">{$t('measure.game')}
+            <select bind:value={captureGame} disabled={locked || capturing}>
+              <option value="" disabled hidden>{$t('measure.noGames')}</option>
+              {#each games as game}<option value={String(game.pid)}>{game.title} — {game.exeName} (PID {game.pid})</option>{/each}
+            </select>
+          </label>
+          <label class="field">{$t('measure.duration')}
+            <input type="number" min="5" max="600" bind:value={captureDuration} disabled={locked || capturing} />
+          </label>
+        </div>
+        <div class="start-row">
+          <button disabled={locked || capturing} onclick={() => void refreshGames()}>{$t('measure.refresh')}</button>
+          <button disabled={capturing} onclick={() => void ipc.cancelGameCapture().catch(() => {})}>{$t('measure.cancel')}</button>
+          <button class="primary" disabled={locked || recovery || capturing || !captureGame} onclick={startCapture}>{$t('measure.start')}</button>
+        </div>
+        {#if capturing}
+          <p role="status">{$t('measure.running')}</p>
+          <progress max="100" value={capturePct}></progress>
+        {/if}
+      </section>
+      <section class="panel">
+        <h2>{$t('measure.compare')}</h2>
+        <p class="hint">{$t('measure.compareHint')}</p>
+        {#if !captures.length}
+          <p>{$t('measure.noCaptures')}</p>
+        {:else}
+          <div class="form-grid">
+            <label class="field">A
+              <select bind:value={pickA} disabled={locked || capturing}>
+                {#each captures as c}<option value={c.id}>{c.startedAt} — {c.gameTitle} ({c.durationSecs}s){#if c.lockedLp != null} · LP {c.lockedLp}{/if}</option>{/each}
+              </select>
+            </label>
+            <label class="field">B
+              <select bind:value={pickB} disabled={locked || capturing}>
+                <option value="" hidden>—</option>
+                {#each captures as c}<option value={c.id}>{c.startedAt} — {c.gameTitle} ({c.durationSecs}s){#if c.lockedLp != null} · LP {c.lockedLp}{/if}</option>{/each}
+              </select>
+            </label>
+          </div>
+          {#if metricRows.length}
+            <div class="table-wrap"><table>
+              <thead><tr><th></th><th>A</th><th>B</th><th>Δ</th></tr></thead>
+              <tbody>{#each metricRows as row}<tr><td>{row.label}</td><td>{fmtVal(row.a)}</td><td>{fmtVal(row.b)}</td><td>{fmtDelta(row)}</td></tr>{/each}</tbody>
+            </table></div>
+          {/if}
+          <button class="danger" disabled={locked || capturing || !pickA} onclick={() => action = 'delCapture'}>{$t('measure.delete')}</button>
+        {/if}
+      </section>
     {:else}
       <section class="panel">
         <label class="field">{$t('quick.history')}<select disabled={locked} value={detail?.summary.id ?? ''} onchange={e => loadResult(e.currentTarget.value)}><option value="" disabled>{$t('quick.chooseHistory')}</option>{#each history as session}<option value={session.id}>{session.startedAt} — {session.gpuName} — {$t(`quick.session.${session.status}`)}</option>{/each}</select></label>

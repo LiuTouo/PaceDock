@@ -8,7 +8,23 @@ export interface Settings {
   closeToTray: boolean;
   pollIntervalMs: number;
   showAdvancedPriorities: boolean;
+  highPrecisionTimer: boolean; // 常駐請求 0.5 ms timer resolution（per-process 語意）
+  timerExemptPrograms: string[]; // 遊戲節流豁免名單（小寫 exe 檔名，持久化）
   theme: Theme;
+}
+
+/** 高精度計時器狀態（get_timer_status） */
+export interface TimerStatus {
+  enabled: boolean;
+  currentResolutionMs: number | null; // 實際生效解析（ms）；查詢失敗為 null
+  minIntervalMs?: number | null; // 最細支援解析（ms，Clockres "Minimum timer interval"，通常 0.5）
+  maxIntervalMs?: number | null; // 最粗支援解析（ms，Clockres "Maximum timer interval"，通常 15.625）
+}
+
+/** timer 節流豁免清單項目（list_timer_exempts）：以程式為鍵；pids 空 = 名單內但未執行 */
+export interface TimerExemptEntry {
+  exeName: string;
+  pids: number[];
 }
 
 export interface LogicalProcessor {
@@ -342,3 +358,32 @@ export interface QuickResult {
   status: RankingStatus; relativeGapPct: number | null;
 }
 export interface MigrationStatus { noticeRequired: boolean; cleanupError: string | null }
+
+// ── 實際遊戲量測相關型別 ──
+
+/** 可量測的遊戲視窗候選（list_game_windows） */
+export interface GameWindow {
+  pid: number;
+  title: string;
+  exeName: string;
+}
+
+/** 單次遊戲量測紀錄（與後端 GameCaptureRecord 一致；指標重用 LpResult） */
+export interface GameCaptureRecord {
+  id: string;
+  gameTitle: string;
+  exeName: string;
+  pid: number;
+  lockedLp: number | null; // capture 當下已套用的鎖定核心 LP；未套用為 null
+  startedAt: string;
+  durationSecs: number;
+  metrics: LpResult;
+  error: string | null;
+}
+
+/** 進度事件（`game-capture-progress`）；stage: capturing | parsing | done | cancelled */
+export interface GameCaptureProgress {
+  captureId: string;
+  stage: string;
+  percentage: number;
+}

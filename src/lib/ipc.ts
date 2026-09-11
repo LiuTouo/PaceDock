@@ -4,10 +4,14 @@ import type {
   BenchmarkConfig,
   BenchmarkState,
   GpuDevice,
+  GameCaptureRecord,
+  GameWindow,
   SessionDetail,
   SessionSummary,
   Settings,
   StorageInfo,
+  TimerExemptEntry,
+  TimerStatus,
   Topology,
   UpdateInfo,
 } from './types';
@@ -15,6 +19,13 @@ import type {
 export const getTopology = () => invoke<Topology>('get_topology');
 export const getSettings = () => invoke<Settings>('get_settings');
 export const saveSettings = (settings: Settings) => invoke<void>('save_settings', { settings });
+export const getTimerStatus = () => invoke<TimerStatus>('get_timer_status');
+export const getTimerGlobalEnabled = () => invoke<boolean | null>('get_timer_global_enabled');
+export const setTimerGlobalEnabled = (enabled: boolean) =>
+  invoke<void>('set_timer_global_enabled', { enabled });
+export const setTimerExempt = (exeName: string, enabled: boolean) =>
+  invoke<void>('set_timer_exempt', { exeName, enabled });
+export const listTimerExempts = () => invoke<TimerExemptEntry[]>('list_timer_exempts');
 export const openDataFolder = () => invoke<void>('open_data_folder');
 
 // 更新相關
@@ -46,3 +57,11 @@ export const retryAutostartCleanup = () => invoke<void>('retry_autostart_cleanup
 
 export const beginUpdate = () => invoke<void>('begin_update');
 export const endUpdate = () => invoke<void>('end_update');
+
+// 實際遊戲量測相關
+export const listGameWindows = () => invoke<GameWindow[]>('list_game_windows');
+export const startGameCapture = (pid: number, title: string, durationSecs: number, gpuInstanceId: string | null) =>
+  invoke<GameCaptureRecord>('start_game_capture', { pid, title, durationSecs, gpuInstanceId });
+export const cancelGameCapture = () => invoke<void>('cancel_game_capture');
+export const listGameCaptures = () => invoke<GameCaptureRecord[]>('list_game_captures');
+export const deleteGameCapture = (id: string) => invoke<void>('delete_game_capture', { id });
