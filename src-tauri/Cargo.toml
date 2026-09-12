@@ -1,6 +1,6 @@
 [package]
 name = "frameanchor"
-version = "0.3.0"
+version = "0.3.1"
 description = "FrameAnchor - GPU physical-core tuning tool"
 edition = "2021"
 rust-version = "1.80"

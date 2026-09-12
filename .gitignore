@@ -1,5 +1,7 @@
 node_modules/
 dist/
+test-results/
+playwright-report/
 src-tauri/target/
 src-tauri/d3d9-workload/target/
 src-tauri/resources/benchmark/d3d9-workload.exe

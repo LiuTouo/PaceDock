@@ -50,6 +50,10 @@
     "bannerInstall": "Install",
     "bannerDismiss": "Dismiss"
   },
+  "about": {
+    "title": "About FrameAnchor",
+    "close": "Close"
+  },
   "timer": {
     "statusTitle": "Timer status",
     "detect": "Detect now",

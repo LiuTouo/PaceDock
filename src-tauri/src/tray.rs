@@ -5,16 +5,18 @@ use std::sync::Arc;
 
 use tauri::menu::{Menu, MenuItemBuilder, PredefinedMenuItem};
 use tauri::tray::{MouseButton, MouseButtonState, TrayIconBuilder, TrayIconEvent};
-use tauri::{AppHandle, Manager, Wry};
+use tauri::{AppHandle, Emitter, Manager, Wry};
 
 use crate::AppState;
 
 const ID_SHOW: &str = "fa_show";
+const ID_ABOUT: &str = "fa_about";
 const ID_QUIT: &str = "fa_quit";
 const TRAY_ID: &str = "main";
 
 struct TrayStrings {
     show: &'static str,
+    about: &'static str,
     quit: &'static str,
 }
 
@@ -22,11 +24,13 @@ fn strings(lang: &str) -> TrayStrings {
     if lang.starts_with("en") {
         TrayStrings {
             show: "Show FrameAnchor",
+            about: "About FrameAnchor",
             quit: "Quit FrameAnchor",
         }
     } else {
         TrayStrings {
             show: "顯示 FrameAnchor",
+            about: "關於 FrameAnchor",
             quit: "結束 FrameAnchor",
         }
     }
@@ -60,9 +64,11 @@ pub fn build_tray(app: &AppHandle) -> tauri::Result<()> {
 fn build_menu(app: &AppHandle, lang: &str) -> tauri::Result<Menu<Wry>> {
     let s = strings(lang);
     let show = MenuItemBuilder::with_id(ID_SHOW, s.show).build(app)?;
+    let about = MenuItemBuilder::with_id(ID_ABOUT, s.about).build(app)?;
     let quit = MenuItemBuilder::with_id(ID_QUIT, s.quit).build(app)?;
     let sep = PredefinedMenuItem::separator(app)?;
-    Menu::with_items(app, &[&show, &sep, &quit])
+    let sep2 = PredefinedMenuItem::separator(app)?;
+    Menu::with_items(app, &[&show, &sep, &about, &sep2, &quit])
 }
 
 /// 語言切換時重建整個選單（save_settings 呼叫）
@@ -86,6 +92,11 @@ fn current_lang(app: &AppHandle) -> String {
 fn handle_menu_event(app: &AppHandle, id: &str) {
     match id {
         ID_SHOW => crate::show_main_window(app),
+        ID_ABOUT => {
+            crate::show_main_window(app);
+            // 前端 AboutDialog 監聽；WebView 在 close-to-tray 下仍存活
+            let _ = app.emit("show-about", ());
+        }
         ID_QUIT => {
             let state = app.state::<Arc<AppState>>();
             // 基準測試執行中：拒絕退出，讓 backend runner 完成或安全取消/還原

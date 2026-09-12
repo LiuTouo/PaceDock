@@ -33,6 +33,8 @@ pub fn save_settings(
     let timer_changed = cfg.settings.high_precision_timer != settings.high_precision_timer;
     let enable_timer = settings.high_precision_timer;
     let lang_changed = cfg.settings.language != settings.language;
+    let autostart_changed = cfg.settings.start_with_windows != settings.start_with_windows;
+    let enable_autostart = settings.start_with_windows;
     let mut candidate = cfg.clone();
     candidate.settings = settings;
     config::save(&candidate)?;
@@ -40,6 +42,9 @@ pub fn save_settings(
     // 套用失敗時回 Err：前端既有 rollback 會還原 checkbox；下次啟動會再嘗試
     if timer_changed {
         crate::timer::apply(enable_timer)?;
+    }
+    if autostart_changed {
+        crate::autostart::set_autostart(enable_autostart)?;
     }
     if lang_changed {
         // 託管在 cfg lock 釋放後重建（此處 lock 仍在 scope，先 drop）

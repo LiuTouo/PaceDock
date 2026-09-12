@@ -130,8 +130,8 @@
           </button>
           <button
             bind:this={confirmBtn}
-            class:danger-primary={danger}
-            class:primary={!danger}
+            class="primary"
+            class:danger
             onclick={onconfirm}
             disabled={busy}
           >
@@ -160,6 +160,8 @@
     display: flex;
     gap: var(--space-4);
     width: min(440px, 100%);
+    max-height: 100%;
+    overflow-y: auto;
     padding: var(--space-6);
     background: var(--surface-1);
     border: 1px solid var(--border-default);
@@ -215,19 +217,10 @@
 
   .actions {
     display: flex;
+    flex-wrap: wrap;
     justify-content: flex-end;
     gap: var(--space-3);
     margin-top: var(--space-6);
   }
 
-  .danger-primary {
-    background: var(--danger);
-    border-color: var(--danger);
-    color: #fff;
-  }
-
-  .danger-primary:hover:not(:disabled) {
-    background: var(--danger-hover);
-    border-color: var(--danger-hover);
-  }
 </style>

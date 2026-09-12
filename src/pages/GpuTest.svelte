@@ -196,16 +196,18 @@
   {#if recovery && !compact}<div class="panel error" role="alert">{$t('quick.recovery')}</div>{/if}
   {#if running || compact}
     <section class="panel progress-panel" aria-live="polite">
+      <div class="progress-info">
       <h2>{cancelling ? $t('quick.cancelling') : $t('quick.running')}</h2>
       <p>{current ? label(current) : $t('quick.calibrating')}</p>
       <p>{cancelling ? $t(`quick.cancelStage.${$benchmarkState?.cancelStage ?? 'requested'}`, { default: $t('quick.cancelling') }) : $t(`quick.phase.${$benchmarkProgress?.phase ?? $benchmarkState?.currentPhase ?? 'Calibration'}`)} · {$t(`quick.stage.${$benchmarkProgress?.stage ?? 'starting'}`)}</p>
       <progress max="100" value={cancelling ? $benchmarkState?.cancelProgress ?? 0 : $benchmarkState?.progressPct ?? 0}></progress>
       <p>{$t('quick.keepWindow')}</p>
-      <button class="danger" disabled={cancelling} onclick={cancel}>{$t('quick.cancel')}</button>
+      </div>
+      <button class="danger small" disabled={cancelling} aria-busy={!!cancelling} onclick={cancel}>{cancelling ? $t('quick.cancelling') : $t('quick.cancel')}</button>
     </section>
   {:else}
     <header><h1>{$t('quick.title')}</h1><p class="hint">{$t('quick.scope')}</p></header>
-    <div class="tabs"><button class:active={section === 'test'} disabled={locked} onclick={() => section = 'test'}>{$t('quick.test')}</button><button class:active={section === 'results'} disabled={locked} onclick={() => section = 'results'}>{$t('quick.history')}</button><button class:active={section === 'measure'} disabled={locked} onclick={() => { section = 'measure'; void refreshGames(); }}>{$t('measure.tab')}</button></div>
+    <div class="tabs"><button class="ghost" aria-pressed={section === 'test'} disabled={locked} onclick={() => section = 'test'}>{$t('quick.test')}</button><button class="ghost" aria-pressed={section === 'results'} disabled={locked} onclick={() => section = 'results'}>{$t('quick.history')}</button><button class="ghost" aria-pressed={section === 'measure'} disabled={locked} onclick={() => { section = 'measure'; void refreshGames(); }}>{$t('measure.tab')}</button></div>
     <section class="panel policy-row">
       <div><strong>{$t('quick.currentPolicy')} — {devices.find(d => d.instanceId === gpu)?.friendlyName ?? gpu}</strong><p>{policyText}</p><small>DevicePolicy: {policy?.devicePolicy.bytes?.join(', ') ?? '—'}</small></div>
       <button disabled={locked} onclick={() => action = 'restore'}>{$t('quick.restore')}</button>
@@ -317,15 +319,17 @@
 {#snippet resultTable(rows: CoreCapture[], selectable: boolean)}
 <div class="table-wrap"><table><thead><tr><th>{$t('quick.core')}</th><th>{$t('quick.score')}</th><th>Avg FPS</th><th>1% low</th><th>0.1% low</th><th>MAD %</th><th>Spike %</th></tr></thead><tbody>{#each rows as row}<tr><td>{#if selectable}<label><input type="radio" name="result-core" value={row.target.coreId} bind:group={chosen} disabled={locked || !eligible} />{label(row.target)}</label>{:else}{label(row.target)}{/if}</td><td>{number(row.score)}</td><td>{number(row.metrics.avgFps)}</td><td>{number(row.metrics.p1Low)}</td><td>{number(row.metrics.p01Low)}</td><td>{number(row.metrics.frametimeMadPct)}</td><td>{number(row.metrics.spikeRatePct)}</td></tr>{/each}</tbody></table></div>
 {/snippet}
-<ConfirmDialog open={action !== null} title={$t('quick.confirm')} message={confirmMessage} confirmLabel={$t('quick.confirm')} cancelLabel={$t('quick.back')} busy={busy} danger={action === 'delete'} onconfirm={confirm} oncancel={() => action = null} />
+<ConfirmDialog open={action !== null} title={$t('quick.confirm')} message={confirmMessage} confirmLabel={$t('quick.confirm')} cancelLabel={$t('quick.back')} busy={busy} danger={action === 'delete' || action === 'delCapture'} onconfirm={confirm} oncancel={() => action = null} />
 
 <style>
   .gpu-page { display: flex; flex-direction: column; gap: 16px; }
   header h1 { margin: 0 0 8px; font-size: 24px; }
   h2 { font-size: 17px; margin: 12px 0; } h3 { font-size: 15px; }
   p { line-height: 1.6; } .hint, small { color: var(--text-secondary); }
-  .tabs, .start-row, .policy-row { display: flex; align-items: center; justify-content: space-between; gap: 12px; }
-  .tabs { justify-content: flex-start; } .active { border-color: var(--accent); }
+  .tabs, .start-row, .policy-row { display: flex; flex-wrap: wrap; align-items: center; justify-content: space-between; gap: 12px; }
+  .tabs { justify-content: flex-start; }
+  .start-row > p, .policy-row > div { flex: 1 1 240px; min-width: 0; overflow-wrap: anywhere; }
+  .start-row > select { flex: 1 1 220px; min-width: 0; }
   .field, .form-grid label { display: flex; gap: 8px; flex-direction: column; }
   .core-grid, .form-grid { display: grid; grid-template-columns: repeat(auto-fit, minmax(230px, 1fr)); gap: 12px; margin: 16px 0; }
   .core-choice { display: flex; align-items: center; gap: 8px; min-height: 44px; }
@@ -335,7 +339,12 @@
   th, td { padding: 10px; border-bottom: 1px solid var(--border-default); text-align: right; white-space: nowrap; }
   th:first-child, td:first-child { text-align: left; }
   progress { width: 100%; height: 10px; accent-color: var(--accent); }
-  .error { color: var(--danger); } .compact { gap: 4px; } .compact .panel { padding: 12px; }
+  .error { color: var(--danger); }
+  .compact { gap: 4px; height: 100%; min-height: 0; }
+  .compact .panel { padding: 12px; }
+  .compact .progress-panel { display: flex; flex-direction: column; gap: 8px; flex: 1; min-height: 0; }
+  .compact .progress-info { flex: 1; min-height: 0; overflow-y: auto; overflow-wrap: anywhere; padding: 2px; }
+  .compact .progress-panel > button { align-self: flex-end; }
   .compact p { margin: 6px 0; font-size: 12px; } .compact h2 { margin: 4px 0; }
   @media (max-width: 700px) { .start-row, .policy-row { flex-wrap: wrap; } }
 </style>

@@ -57,7 +57,7 @@
 <section class="interrupt-panel" aria-busy={measuring}>
   <div class="heading">
     <h2>{text.title}</h2>
-    <button disabled={locked || measuring || !instanceId} onclick={measure}>{measuring ? text.measuring : text.measure}</button>
+    <button class="large" disabled={locked || measuring || !instanceId} aria-busy={measuring} onclick={measure}>{measuring ? text.measuring : text.measure}</button>
   </div>
   <p class="hint">{text.hint}</p>
   <div role="status" aria-live="polite">
@@ -89,10 +89,8 @@
   h2 { margin: 0; font-size: 1rem; }
   p { margin: 10px 0; }
   .hint { color: var(--text-secondary); font-size: 0.85rem; }
-  button { min-height: 44px; padding: 8px 16px; cursor: pointer; }
-  button:disabled { cursor: default; opacity: 0.6; }
   table { width: 100%; border-collapse: collapse; font-variant-numeric: tabular-nums; }
   th, td { text-align: left; padding: 8px; border-bottom: 1px solid var(--border); }
   summary { cursor: pointer; padding: 8px 0; }
-  .error { color: var(--danger, #e57373); }
+  .error { color: var(--danger, #f38ba8); }
 </style>

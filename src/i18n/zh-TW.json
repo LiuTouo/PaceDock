@@ -50,6 +50,10 @@
     "bannerInstall": "安裝",
     "bannerDismiss": "稍後"
   },
+  "about": {
+    "title": "關於 FrameAnchor",
+    "close": "關閉"
+  },
   "timer": {
     "statusTitle": "計時器狀態",
     "detect": "手動偵測",

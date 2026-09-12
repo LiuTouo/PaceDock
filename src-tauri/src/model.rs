@@ -36,7 +36,7 @@ pub struct Settings {
     pub language: String,
     #[serde(default)]
     pub start_with_windows: bool,
-    #[serde(default = "default_true")]
+    #[serde(default)]
     pub start_minimized: bool,
     #[serde(default = "default_true")]
     pub close_to_tray: bool,
@@ -87,7 +87,8 @@ impl Default for Settings {
         Self {
             language: default_language(),
             start_with_windows: false,
-            start_minimized: true,
+            // 預設不最小化啟動：主視窗以最大化顯示（tauri.conf.json maximized）
+            start_minimized: false,
             close_to_tray: true,
             poll_interval_ms: default_poll_interval(),
             show_advanced_priorities: false,

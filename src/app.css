@@ -7,82 +7,90 @@
   font-display: swap;
 }
 
-/* ── 設計代幣：深色主題（預設） ── */
+/* ── 設計代幣：深色主題（預設，Catppuccin Frappé） ── */
 :root,
 [data-theme='dark'] {
-  /* 表面 */
-  --surface-0: #0d1017;
-  --surface-1: #151a24;
-  --surface-2: #1c2230;
-  --surface-3: #252c3d;
+  /* 表面：mantle → base → surface0 → surface1（由深至淺） */
+  --surface-0: #292c3c;
+  --surface-1: #303446;
+  --surface-2: #414559;
+  --surface-3: #51576d;
 
-  /* 文字 */
-  --text-primary: #e6ebf4;
-  --text-secondary: #929fb4;
-  --text-muted: #5f6c82;
+  /* 文字：text / subtext0 / overlay0 */
+  --text-primary: #c6d0f5;
+  --text-secondary: #a5adce;
+  --text-muted: #737994;
 
-  /* 邊框 */
-  --border-subtle: #232b3a;
-  --border-default: #2f3a4e;
+  /* 邊框：surface0 / surface1 */
+  --border-subtle: #414559;
+  --border-default: #51576d;
+  --button-border: #a5adce;
+  --button-hover: #51576d;
+  --focus-color: #8caaee;
 
-  /* 品牌 */
-  --accent: #5b9cf5;
-  --accent-hover: #7ab4ff;
-  --accent-muted: rgba(91, 156, 245, 0.14);
-  --accent-text: #ffffff;
+  /* 品牌：blue / lavender；base 字配 blue 背景，對比 5.34:1 */
+  --accent: #8caaee;
+  --accent-hover: #babbf1;
+  --accent-muted: rgba(140, 170, 238, 0.16);
+  --accent-text: #303446;
 
-  /* 狀態色 */
-  --success: #34d399;
-  --success-muted: rgba(52, 211, 153, 0.13);
-  --warning: #f0a33c;
-  --warning-muted: rgba(240, 163, 60, 0.14);
-  --danger: #f7616b;
-  --danger-hover: #f98088;
-  --danger-muted: rgba(247, 97, 107, 0.14);
+  /* 狀態色：green / yellow / red / maroon */
+  --success: #a6d189;
+  --success-muted: rgba(166, 209, 137, 0.13);
+  --warning: #e5c890;
+  --warning-muted: rgba(229, 200, 144, 0.14);
+  --danger: #e78284;
+  --danger-hover: #ea999c;
+  --danger-muted: rgba(231, 130, 132, 0.14);
 
-  /* 陰影 */
-  --shadow-xs: 0 1px 2px rgba(0, 0, 0, 0.3);
-  --shadow-sm: 0 1px 3px rgba(0, 0, 0, 0.32), 0 1px 2px rgba(0, 0, 0, 0.24);
-  --shadow-md: 0 4px 14px rgba(0, 0, 0, 0.4);
-  --shadow-lg: 0 12px 40px rgba(0, 0, 0, 0.52);
+  /* 陰影（crust 基底） */
+  --shadow-xs: 0 1px 2px rgba(35, 38, 52, 0.35);
+  --shadow-sm: 0 1px 3px rgba(35, 38, 52, 0.37), 0 1px 2px rgba(35, 38, 52, 0.28);
+  --shadow-md: 0 4px 14px rgba(35, 38, 52, 0.45);
+  --shadow-lg: 0 12px 40px rgba(35, 38, 52, 0.56);
 
-  /* 疊加 */
-  --overlay: rgba(3, 6, 12, 0.7);
+  /* 疊加（crust） */
+  --overlay: rgba(35, 38, 52, 0.7);
 }
 
-/* ── 設計代幣：淺色主題 ── */
+/* ── 設計代幣：淺色主題（Catppuccin Latte） ── */
 [data-theme='light'] {
-  --surface-0: #f4f5f8;
-  --surface-1: #ffffff;
-  --surface-2: #eef0f4;
-  --surface-3: #e3e6ec;
+  /* 表面：mantle → base → surface0 → surface1（由深至淺） */
+  --surface-0: #e6e9ef;
+  --surface-1: #eff1f5;
+  --surface-2: #ccd0da;
+  --surface-3: #bcc0cc;
 
-  --text-primary: #171c28;
-  --text-secondary: #5a6272;
-  --text-muted: #8d96a8;
+  --text-primary: #4c4f69;
+  --text-secondary: #6c6f85;
+  --text-muted: #8c8fa1;
 
-  --border-subtle: #e4e7ec;
-  --border-default: #ccd2dc;
+  --border-subtle: #ccd0da;
+  --border-default: #bcc0cc;
+  --button-border: #5c5f77;
+  --button-hover: #dce0e8;
+  --focus-color: #1e66f5;
 
-  --accent: #3b7de0;
-  --accent-hover: #2f6cc9;
-  --accent-muted: rgba(59, 125, 224, 0.11);
+  /* 品牌：blue；hover 混入 text 加深（Lavender 配白字對比不足） */
+  --accent: #1e66f5;
+  --accent-hover: color-mix(in srgb, #1e66f5 78%, #4c4f69);
+  --accent-muted: rgba(30, 102, 245, 0.12);
   --accent-text: #ffffff;
 
-  --success: #159a50;
-  --success-muted: rgba(21, 154, 80, 0.11);
-  --warning: #c77808;
-  --warning-muted: rgba(199, 120, 8, 0.12);
-  --danger: #dc3f4b;
-  --danger-hover: #c9333f;
-  --danger-muted: rgba(220, 63, 75, 0.11);
+  --success: #40a02b;
+  --success-muted: rgba(64, 160, 43, 0.11);
+  --warning: #df8e1d;
+  --warning-muted: rgba(223, 142, 29, 0.12);
+  --danger: #d20f39;
+  --danger-hover: color-mix(in srgb, #d20f39 80%, #4c4f69);
+  --danger-muted: rgba(210, 15, 57, 0.11);
 
-  --shadow-xs: 0 1px 2px rgba(15, 20, 32, 0.06);
-  --shadow-sm: 0 1px 3px rgba(15, 20, 32, 0.08);
-  --shadow-md: 0 4px 16px rgba(15, 20, 32, 0.12);
-  --shadow-lg: 0 16px 48px rgba(15, 20, 32, 0.2);
+  --shadow-xs: 0 1px 2px rgba(76, 79, 105, 0.06);
+  --shadow-sm: 0 1px 3px rgba(76, 79, 105, 0.08);
+  --shadow-md: 0 4px 16px rgba(76, 79, 105, 0.12);
+  --shadow-lg: 0 16px 48px rgba(76, 79, 105, 0.2);
 
-  --overlay: rgba(10, 14, 22, 0.42);
+  --overlay: rgba(76, 79, 105, 0.4);
 }
 
 /* ── 不隨主題變化的固定代幣 ── */
@@ -193,8 +201,8 @@ h4 {
 
 /* ── 焦點可見（鍵盤導航時顯示焦點環；滑鼠點擊時不顯示） ── */
 :focus-visible {
-  outline: none;
-  box-shadow: var(--focus-ring);
+  outline: 2px solid var(--focus-color);
+  outline-offset: 2px;
 }
 
 /* ── reduced-motion ── */
@@ -209,101 +217,108 @@ h4 {
 
 /* ── 按鈕 ── */
 button {
+  --button-bg: var(--surface-2);
+  --button-fg: var(--text-primary);
+  --button-hover-bg: var(--button-hover);
+  --button-hover-fg: var(--button-fg);
+  --button-stroke: var(--button-border);
   font: inherit;
-  color: var(--text-primary);
-  background: var(--surface-2);
-  border: 1px solid var(--border-default);
-  border-radius: var(--radius-sm);
-  padding: 0 var(--space-4);
-  height: var(--control-md);
+  font-weight: var(--font-weight-medium);
+  color: var(--button-fg);
+  background: var(--button-bg);
+  border: 1px solid var(--button-stroke);
+  border-radius: 8px;
+  padding: 7px var(--space-4);
+  min-height: 40px;
+  height: auto;
+  max-width: 100%;
+  flex-shrink: 0;
   cursor: pointer;
   display: inline-flex;
   align-items: center;
+  justify-content: center;
   gap: var(--space-2);
-  transition:
-    background var(--transition-fast),
-    border-color var(--transition-fast),
-    color var(--transition-fast),
-    box-shadow var(--transition-fast),
-    transform var(--transition-fast);
-  white-space: nowrap;
+  /* 前景／背景同時切換，避免不同亮度插值造成短暫低對比。 */
+  transition: box-shadow var(--transition-fast), border-color var(--transition-fast);
+  white-space: normal;
+  overflow-wrap: anywhere;
+  line-height: 1.5;
   user-select: none;
 }
 
 button:hover:not(:disabled) {
-  background: var(--surface-3);
-  border-color: var(--accent);
+  background: var(--button-hover-bg);
+  color: var(--button-hover-fg);
 }
 
 button:active:not(:disabled) {
-  background: var(--surface-2);
-  transform: translateY(1px);
-}
-
-button:disabled {
-  opacity: 0.4;
-  cursor: default;
+  background: var(--button-bg);
+  color: var(--button-fg);
+  box-shadow: inset 0 0 0 2px currentColor;
 }
 
 button.primary {
-  background: var(--accent);
-  border-color: var(--accent);
-  color: var(--accent-text);
+  --button-bg: var(--accent);
+  --button-fg: var(--accent-text);
+  --button-hover-bg: var(--accent-hover);
+  --button-stroke: var(--accent);
   box-shadow: var(--shadow-xs);
 }
 
-button.primary:hover:not(:disabled) {
-  background: var(--accent-hover);
-  border-color: var(--accent-hover);
-}
-
-button.primary:active:not(:disabled) {
-  background: var(--accent);
-}
-
 button.danger {
-  color: var(--danger);
-  border-color: var(--border-default);
-  background: transparent;
-}
-
-button.danger:hover:not(:disabled) {
-  background: var(--danger-muted);
-  border-color: var(--danger);
+  --button-bg: var(--surface-1);
+  --button-fg: var(--danger);
+  --button-stroke: var(--danger);
+  --button-hover-bg: var(--danger);
+  --button-hover-fg: var(--accent-text);
 }
 
 button.danger.primary {
-  background: var(--danger);
-  border-color: var(--danger);
-  color: #fff;
-}
-
-button.danger.primary:hover:not(:disabled) {
-  background: var(--danger-hover);
-  border-color: var(--danger-hover);
+  --button-bg: var(--danger);
+  --button-fg: var(--accent-text);
+  --button-hover-bg: var(--danger-hover);
 }
 
 button.small {
-  height: var(--control-sm);
+  min-height: 32px;
   font-size: 12px;
-  padding: 0 var(--space-3);
+  padding: 5px var(--space-3);
 }
 
-/* 無外框按鈕（導覽 / 區段切換 / 圖示按鈕） */
+button.large {
+  min-height: 44px;
+}
+
+/* 導覽／分頁保留共用的 hover、active、disabled 與焦點行為。 */
 button.ghost {
-  background: transparent;
-  border-color: transparent;
-  color: var(--text-secondary);
+  --button-bg: var(--surface-1);
+  --button-stroke: transparent;
+  --button-hover-bg: var(--surface-2);
 }
 
-button.ghost:hover:not(:disabled) {
-  background: var(--surface-2);
-  border-color: transparent;
+button[aria-pressed='true'],
+button[aria-current='page'] {
+  --button-bg: var(--surface-2);
+  --button-hover-bg: var(--button-hover);
+  --button-stroke: var(--button-border);
+  font-weight: var(--font-weight-semibold);
+  text-decoration: underline;
+  text-decoration-thickness: 2px;
+  text-underline-offset: 5px;
+}
+
+/* 全部變體共用停用色；不降低整體透明度，以保留標籤可讀性。 */
+button:disabled {
   color: var(--text-primary);
+  background: var(--surface-2);
+  border: 1px dashed var(--button-border);
+  opacity: 1;
+  cursor: not-allowed;
+  box-shadow: none;
 }
 
-button.ghost:active:not(:disabled) {
-  background: var(--surface-3);
+button > svg {
+  flex-shrink: 0;
 }
 
 /* ── 輸入框 ── */
@@ -383,13 +398,13 @@ select {
   cursor: pointer;
   appearance: none;
   padding-right: 30px;
-  background-image: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='10' height='6'%3E%3Cpath d='M0 0l5 6 5-6z' fill='%23929fb4'/%3E%3C/svg%3E");
+  background-image: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='10' height='6'%3E%3Cpath d='M0 0l5 6 5-6z' fill='%23a6adc8'/%3E%3C/svg%3E");
   background-repeat: no-repeat;
   background-position: right 11px center;
 }
 
 [data-theme='light'] select {
-  background-image: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='10' height='6'%3E%3Cpath d='M0 0l5 6 5-6z' fill='%235a6272'/%3E%3C/svg%3E");
+  background-image: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='10' height='6'%3E%3Cpath d='M0 0l5 6 5-6z' fill='%236c6f85'/%3E%3C/svg%3E");
 }
 
 /* ── badge ── */
@@ -543,6 +558,7 @@ tbody tr:hover {
 /* ── 工具列 / 動作列 ── */
 .toolbar {
   display: flex;
+  flex-wrap: wrap;
   gap: var(--space-2);
   align-items: center;
 }

@@ -6,6 +6,7 @@
   import SettingsPage from './pages/Settings.svelte';
   import TimerPage from './pages/Timer.svelte';
   import ConfirmDialog from './components/ConfirmDialog.svelte';
+  import AboutDialog from './components/AboutDialog.svelte';
   import * as ipc from './lib/ipc';
   import {
     gpuOperationBusy,
@@ -50,6 +51,7 @@
   // 啟動時找到的更新橫幅：本機 dismiss 旗標，不影響 store 狀態
   let updateBannerDismissed = $state(false);
   let updateConfirmOpen = $state(false);
+  let aboutOpen = $state(false);
   let exitBlocked = $state(false);
   let migration = $state<import('./lib/types').MigrationStatus | null>(null);
   async function dismissMigration() { await ipc.acknowledgeMigration(); if (migration) migration.noticeRequired = false; }
@@ -61,6 +63,7 @@
     const poll = setInterval(() => { if ($benchmarkState?.gpuBusy || $benchmarkState?.status === 'Running') void ipc.getBenchmarkState().then(benchmarkState.set); }, 1000);
     (async () => {
       unlisteners.push(await listen('gpu-exit-blocked', () => { exitBlocked = true; }));
+      unlisteners.push(await listen('show-about', () => { aboutOpen = true; }));
       migration = await ipc.getMigrationStatus();
       topology.set(await ipc.getTopology());
       const s = await ipc.getSettings();
@@ -147,7 +150,7 @@
     <div class="nav-items">
       {#each navItems as item (item.tab)}
         <button
-          class="nav-btn"
+          class="nav-btn ghost"
           class:active={tab === item.tab}
           disabled={navDisabled(item.tab)}
           onclick={() => switchTab(item.tab)}
@@ -216,6 +219,8 @@
   onconfirm={confirmBannerInstall}
 />
 
+<AboutDialog bind:open={aboutOpen} />
+
 <style>
   .shell {
     display: flex;
@@ -262,7 +267,7 @@
   .nav-items {
     display: flex;
     flex-direction: column;
-    gap: 4px;
+    gap: var(--space-2);
     flex: 1;
   }
 
@@ -273,30 +278,10 @@
     gap: var(--space-3);
     width: 100%;
     text-align: left;
-    background: transparent;
-    border: none;
-    border-radius: var(--radius-md);
-    padding: 0 var(--space-3);
-    height: 40px;
-    color: var(--text-secondary);
+    justify-content: flex-start;
+    padding: 7px var(--space-3);
+    min-height: 40px;
     font-size: 13.5px;
-    cursor: pointer;
-    transition: background var(--transition-fast), color var(--transition-fast);
-  }
-
-  .nav-btn:hover:not(:disabled) {
-    color: var(--text-primary);
-    background: var(--surface-2);
-  }
-
-  .nav-btn:active:not(:disabled) {
-    background: var(--surface-3);
-  }
-
-  .nav-btn.active {
-    color: var(--text-primary);
-    background: var(--accent-muted);
-    font-weight: var(--font-weight-medium);
   }
 
   .nav-btn.active::before {
@@ -310,16 +295,11 @@
     background: var(--accent);
   }
 
-  .nav-btn:disabled {
-    opacity: 0.35;
-    cursor: default;
-  }
-
   .nav-icon {
     width: 18px;
     height: 18px;
     flex-shrink: 0;
-    color: var(--text-muted);
+    color: currentColor;
     transition: color var(--transition-fast);
   }
 
@@ -356,6 +336,7 @@
   /* ── 更新橫幅 ── */
   .update-banner {
     display: flex;
+    flex-wrap: wrap;
     align-items: center;
     gap: var(--space-3);
     padding: var(--space-3) var(--space-5);
@@ -373,19 +354,21 @@
   }
 
   .update-banner span {
-    flex: 1;
+    flex: 1 1 240px;
+    overflow-wrap: anywhere;
   }
 
   .banner-actions {
     display: flex;
+    flex-wrap: wrap;
     gap: var(--space-2);
-    flex-shrink: 0;
+    max-width: 100%;
   }
 
   @media (max-width: 999px) {
     .page { padding: var(--space-4); }
   }
 
-  /* compact progress 模式：無側欄、內距收窄、禁止滾動（內容必須完整放得下） */
-  .shell.compact .page { padding: var(--space-2); overflow: hidden; }
+  /* compact 由進度資訊區捲動，取消按鈕保留在底部。 */
+  .shell.compact .page { padding: var(--space-2); overflow: hidden; min-height: 0; }
 </style>

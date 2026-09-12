@@ -10,7 +10,6 @@ use windows::Win32::System::SystemInformation::GetSystemDirectoryW;
 /// 判斷目前執行檔是否位於 medium-integrity 程序不可寫的受保護目錄
 /// (Program Files 樹)。其他位置(可攜版目錄、使用者目錄)一律視為可寫。
 /// 以 SHGetKnownFolderPath 查詢,不依賴可被使用者環境變數覆蓋的 %ProgramFiles%。
-#[cfg(test)]
 pub fn in_protected_program_dir() -> bool {
     let Ok(exe) = std::env::current_exe() else {
         return false;
@@ -28,7 +27,6 @@ pub fn in_protected_program_dir() -> bool {
     })
 }
 
-#[cfg(test)]
 fn known_folder_path(fid: &windows::core::GUID) -> Result<String, String> {
     use windows::Win32::System::Com::CoTaskMemFree;
     use windows::Win32::UI::Shell::SHGetKnownFolderPath;

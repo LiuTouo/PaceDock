@@ -138,37 +138,6 @@
     <p class="hint">{$t('settings.highPrecisionTimerHint')}</p>
   </section>
 
-  <!-- ── 計時器狀態（手動偵測）── -->
-  <section class="panel">
-    <h2>{$t('timer.statusTitle')}</h2>
-    <p class="hint">{$t('timer.detectHint')}</p>
-    <div class="reading">
-      <span class="resolution" class:fast={$settings.highPrecisionTimer && (status?.currentResolutionMs ?? 16) <= 1}>
-        {#if status?.currentResolutionMs}{status.currentResolutionMs.toFixed(2)}<small> ms</small>{:else}—{/if}
-      </span>
-      <span class="dot" class:on={$settings.highPrecisionTimer} aria-hidden="true"></span>
-    </div>
-    <div class="row">
-      <button class="primary" disabled={detecting} onclick={detect}>{$t('timer.detect')}</button>
-    </div>
-    {#if status?.minIntervalMs && status?.maxIntervalMs}
-      <p class="hint">
-        {$t('timer.range', {
-          values: {
-            min: status.minIntervalMs.toFixed(2),
-            max: status.maxIntervalMs.toFixed(3),
-          },
-        })}
-      </p>
-    {/if}
-    <p class="hint">
-      {$settings.highPrecisionTimer
-        ? $t('timer.stateOn')
-        : $t('timer.stateOff')}
-    </p>
-    <p class="hint">{$t('timer.globalNote')}</p>
-  </section>
-
   <!-- ── 全域模式（登錄值）── -->
   <section class="panel">
     <h2>{$t('timer.globalTitle')}</h2>
@@ -221,6 +190,37 @@
       <p class="hint">{$t('timer.exemptNote')}</p>
     {/if}
   </section>
+
+  <!-- ── 計時器狀態（手動偵測）── -->
+  <section class="panel">
+    <h2>{$t('timer.statusTitle')}</h2>
+    <p class="hint">{$t('timer.detectHint')}</p>
+    <div class="reading">
+      <span class="resolution" class:fast={$settings.highPrecisionTimer && (status?.currentResolutionMs ?? 16) <= 1}>
+        {#if status?.currentResolutionMs}{status.currentResolutionMs.toFixed(2)}<small> ms</small>{:else}—{/if}
+      </span>
+      <span class="dot" class:on={$settings.highPrecisionTimer} aria-hidden="true"></span>
+    </div>
+    <div class="row">
+      <button class="primary" disabled={detecting} onclick={detect}>{$t('timer.detect')}</button>
+    </div>
+    {#if status?.minIntervalMs && status?.maxIntervalMs}
+      <p class="hint">
+        {$t('timer.range', {
+          values: {
+            min: status.minIntervalMs.toFixed(2),
+            max: status.maxIntervalMs.toFixed(3),
+          },
+        })}
+      </p>
+    {/if}
+    <p class="hint">
+      {$settings.highPrecisionTimer
+        ? $t('timer.stateOn')
+        : $t('timer.stateOff')}
+    </p>
+    <p class="hint">{$t('timer.globalNote')}</p>
+  </section>
 {/if}
 
 <style>
@@ -229,14 +229,15 @@
   }
   .row {
     display: flex;
+    flex-wrap: wrap;
     align-items: center;
     justify-content: space-between;
     gap: var(--space-2);
     min-height: var(--control-md);
-    cursor: pointer;
+    cursor: default;
   }
   .row select {
-    flex: 1;
+    flex: 1 1 220px;
     min-width: 0;
     cursor: pointer;
   }
@@ -250,19 +251,13 @@
   }
   .exempt-list li {
     display: flex;
+    flex-wrap: wrap;
     align-items: center;
     justify-content: space-between;
     gap: var(--space-2);
   }
   .exempt-list small {
     opacity: 0.6;
-  }
-  button.danger {
-    color: var(--danger);
-  }
-  button.primary {
-    border-color: var(--accent);
-    color: var(--accent);
   }
   .hint {
     margin: var(--space-2) 0 0;

@@ -94,6 +94,29 @@
     </div>
   {/if}
 
+  <!-- ── 一般（啟動行為）── -->
+  <section class="panel settings-section">
+    <h2 class="section-title">{$t('settings.general')}</h2>
+    <div class="section">
+      <label class="opt row">
+        <span>{$t('settings.autostart')}</span>
+        <input
+          type="checkbox"
+          checked={$settings.startWithWindows}
+          onchange={(e) => save({ startWithWindows: e.currentTarget.checked })}
+        />
+      </label>
+      <label class="opt row">
+        <span>{$t('settings.startMinimized')}</span>
+        <input
+          type="checkbox"
+          checked={$settings.startMinimized}
+          onchange={(e) => save({ startMinimized: e.currentTarget.checked })}
+        />
+      </label>
+    </div>
+  </section>
+
   <!-- ── 外觀 ── -->
   <section class="panel settings-section">
     <h2 class="section-title">{$t('settings.appearance')}</h2>
@@ -149,12 +172,12 @@
         </span>
 
         {#if $updateState?.status === 'Available'}
-          <button onclick={doUpdate} disabled={installing}>
-            {installing ? '…' : $t('settings.updateInstall')}
+          <button class="primary" onclick={doUpdate} disabled={installing} aria-busy={installing}>
+            {installing ? $t('settings.updateInstalling') : $t('settings.updateInstall')}
           </button>
         {:else if $updateState?.status !== 'Downloading' && $updateState?.status !== 'Installing'}
-          <button onclick={manualCheck} disabled={checking || installing}>
-            {checking ? '…' : $t('settings.updateCheck')}
+          <button onclick={manualCheck} disabled={checking || installing} aria-busy={checking}>
+            {checking ? $t('settings.updateChecking') : $t('settings.updateCheck')}
           </button>
         {/if}
       </div>
@@ -214,6 +237,7 @@
 
   .opt {
     display: flex;
+    flex-wrap: wrap;
     align-items: center;
     gap: var(--space-2);
     cursor: pointer;
@@ -227,6 +251,9 @@
   .opt.row {
     justify-content: space-between;
   }
+
+  .opt > span { overflow-wrap: anywhere; min-width: 0; }
+  .opt select { max-width: 100%; }
 
 
 
