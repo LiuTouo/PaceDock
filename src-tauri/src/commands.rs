@@ -24,10 +24,15 @@ pub fn get_settings(state: State<Arc<AppState>>) -> Settings {
 }
 
 #[tauri::command]
-pub fn save_settings(state: State<Arc<AppState>>, settings: Settings) -> Result<(), String> {
+pub fn save_settings(
+    state: State<Arc<AppState>>,
+    app: AppHandle,
+    settings: Settings,
+) -> Result<(), String> {
     let mut cfg = state.config.write().map_err(|e| e.to_string())?;
     let timer_changed = cfg.settings.high_precision_timer != settings.high_precision_timer;
     let enable_timer = settings.high_precision_timer;
+    let lang_changed = cfg.settings.language != settings.language;
     let mut candidate = cfg.clone();
     candidate.settings = settings;
     config::save(&candidate)?;
@@ -35,6 +40,11 @@ pub fn save_settings(state: State<Arc<AppState>>, settings: Settings) -> Result<
     // 套用失敗時回 Err：前端既有 rollback 會還原 checkbox；下次啟動會再嘗試
     if timer_changed {
         crate::timer::apply(enable_timer)?;
+    }
+    if lang_changed {
+        // 託管在 cfg lock 釋放後重建（此處 lock 仍在 scope，先 drop）
+        drop(cfg);
+        crate::tray::rebuild_menu(&app);
     }
     Ok(())
 }

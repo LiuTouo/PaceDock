@@ -16,6 +16,7 @@ mod process;
 mod state_auth;
 mod syspath;
 mod timer;
+mod tray;
 mod topology;
 mod update;
 
@@ -114,7 +115,18 @@ fn main() {
             // 單一實例 plugin 已完成檢查後，才可讀取並還原共用 GPU 日誌。
             state.benchmark.attempt_startup_recovery();
             let handle = app.handle().clone();
-            show_main_window(&handle);
+            tray::build_tray(&handle)?;
+
+            // --minimized（或設定 start_minimized）→ 不開主視窗，常駐系統匣
+            let minimized = std::env::args().any(|a| a == "--minimized");
+            let start_min = state
+                .config
+                .read()
+                .map(|c| c.settings.start_minimized)
+                .unwrap_or(false);
+            if !minimized && !start_min {
+                show_main_window(&handle);
+            }
             tauri::async_runtime::spawn_blocking(|| {
                 let _ = autostart::cleanup_legacy_autostart();
             });
@@ -165,6 +177,17 @@ fn main() {
                 if state.benchmark.refuse_exit_if_running().is_err() {
                     api.prevent_close();
                     let _ = window.emit("gpu-exit-blocked", ());
+                    return;
+                }
+                // close_to_tray：關閉 = 隱藏到系統匣，timer 常駐不中斷
+                let close_to_tray = state
+                    .config
+                    .read()
+                    .map(|c| c.settings.close_to_tray)
+                    .unwrap_or(true);
+                if close_to_tray {
+                    api.prevent_close();
+                    let _ = window.hide();
                 }
             }
         })
