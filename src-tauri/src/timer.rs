@@ -2,8 +2,10 @@
 //!
 //! 誠實限制（設定頁 hint 須如實告知）：
 //! - Windows 10 2004+ 起請求為 per-process：FrameAnchor 的請求只保證自身 timer
-//!   精度；背景/隱藏視窗行程在 Win11 起其請求會被節流。
-//! - 全域生效需 `GlobalTimerResolutionRequests=1`（本功能不寫此鍵，僅提示）。
+//!   精度。
+//! - 全域生效需 `GlobalTimerResolutionRequests=1`（設定頁可寫入）。
+//! - Win11 起背景/隱藏視窗行程的請求會被節流；本行程持有請求時對「自己」施加
+//!   節流豁免（`apply_self_exempt`），故縮小/隱藏視窗後 0.5 ms 仍被核心採納。
 
 use std::ffi::c_void;
 use std::collections::HashMap;
@@ -21,7 +23,7 @@ use windows::Win32::System::Registry::{
     HKEY, HKEY_LOCAL_MACHINE, KEY_QUERY_VALUE, KEY_SET_VALUE, REG_DWORD,
 };
 use windows::Win32::System::Threading::{
-    OpenProcess, SetProcessInformation, ProcessPowerThrottling,
+    GetCurrentProcess, OpenProcess, SetProcessInformation, ProcessPowerThrottling,
     PROCESS_POWER_THROTTLING_CURRENT_VERSION, PROCESS_POWER_THROTTLING_IGNORE_TIMER_RESOLUTION,
     PROCESS_POWER_THROTTLING_STATE, PROCESS_SET_LIMITED_INFORMATION,
 };
@@ -118,14 +120,52 @@ pub fn intervals() -> Option<(u32, u32, u32)> {
     }
 }
 
+/// 對自身行程施加/還原 timer 前景節流豁免（與遊戲豁免 set_exempt 同機制，
+/// 但免 OpenProcess/名單記帳 — GetCurrentProcess 偽柄即自身）。StateMask = 0
+/// 表示「忽略 timer 解析」關閉：視窗縮小/隱藏時本行程的請求仍被核心採納。
+fn apply_self_exempt(enabled: bool) -> Result<(), String> {
+    let state = PROCESS_POWER_THROTTLING_STATE {
+        Version: PROCESS_POWER_THROTTLING_CURRENT_VERSION,
+        ControlMask: if enabled {
+            PROCESS_POWER_THROTTLING_IGNORE_TIMER_RESOLUTION
+        } else {
+            0
+        },
+        StateMask: 0,
+    };
+    let result = unsafe {
+        SetProcessInformation(
+            GetCurrentProcess(),
+            ProcessPowerThrottling,
+            &state as *const _ as *const c_void,
+            std::mem::size_of::<PROCESS_POWER_THROTTLING_STATE>() as u32,
+        )
+    };
+    if result.is_err() {
+        Err(format!("SetProcessInformation(self): {result:?}"))
+    } else {
+        Ok(())
+    }
+}
+
 /// 套用開關：與 KEEP 同步。冪等（同值重套不重發請求）。
+/// 持有請求時對自身施加節流豁免：縮小/隱藏視窗後 0.5 ms 不被 Win11 前景節流。
+/// 豁免失敗僅 log 降級（請求本身已送出，只是縮小後會被節流）。
 pub fn apply(enabled: bool) -> Result<(), String> {
     if KEEP.swap(enabled, Ordering::Relaxed) == enabled {
         return Ok(());
     }
     if enabled {
-        request().0
+        let r = request().0;
+        if let Err(e) = apply_self_exempt(true) {
+            log::warn!("自身 timer 節流豁免失敗（縮小後請求可能被節流）: {e}");
+        }
+        r
     } else {
+        // 先還原豁免（交還系統預設）再釋放請求
+        if let Err(e) = apply_self_exempt(false) {
+            log::warn!("自身 timer 節流豁免還原失敗: {e}");
+        }
         release()
     }
 }
@@ -511,5 +551,12 @@ mod tests {
             assert!((100..=1_000_000).contains(&max), "異常解析值 {max}");
             assert!((100..=1_000_000).contains(&cur), "異常解析值 {cur}");
         }
+    }
+
+    /// 自身豁免雙向可套用/還原（Windows 測試環境必支援 SetProcessInformation）。
+    #[test]
+    fn self_exempt_toggles() {
+        assert!(apply_self_exempt(true).is_ok());
+        assert!(apply_self_exempt(false).is_ok());
     }
 }
