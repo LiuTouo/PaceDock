@@ -23,15 +23,15 @@ struct TrayStrings {
 fn strings(lang: &str) -> TrayStrings {
     if lang.starts_with("en") {
         TrayStrings {
-            show: "Show FrameAnchor",
-            about: "About FrameAnchor",
-            quit: "Quit FrameAnchor",
+            show: "Show PaceDock",
+            about: "About PaceDock",
+            quit: "Quit PaceDock",
         }
     } else {
         TrayStrings {
-            show: "顯示 FrameAnchor",
-            about: "關於 FrameAnchor",
-            quit: "結束 FrameAnchor",
+            show: "顯示 PaceDock",
+            about: "關於 PaceDock",
+            quit: "結束 PaceDock",
         }
     }
 }
@@ -44,7 +44,7 @@ pub fn build_tray(app: &AppHandle) -> tauri::Result<()> {
     TrayIconBuilder::with_id(TRAY_ID)
         .icon(icon)
         .menu(&menu)
-        .tooltip(format!("FrameAnchor v{}", app.package_info().version))
+        .tooltip(format!("PaceDock v{}", app.package_info().version))
         .show_menu_on_left_click(false)
         .on_menu_event(|app, event| handle_menu_event(app, event.id().as_ref()))
         .on_tray_icon_event(|tray, event| {
@@ -101,7 +101,7 @@ fn handle_menu_event(app: &AppHandle, id: &str) {
             let state = app.state::<Arc<AppState>>();
             // 基準測試執行中：拒絕退出，讓 backend runner 完成或安全取消/還原
             if state.benchmark.refuse_exit_if_running().is_err() {
-                log::warn!("基準測試執行中，拒絕結束 FrameAnchor");
+                log::warn!("基準測試執行中，拒絕結束 PaceDock");
                 return;
             }
             app.exit(0);

@@ -36,7 +36,6 @@ export function mockTauri({ theme, language, compact = false }) {
         case 'plugin:event|unlisten': listeners.delete(args.eventId); return;
         case 'get_settings': return settings;
         case 'save_settings': Object.assign(settings, args.settings); return;
-        case 'get_migration_status': return { noticeRequired: false, cleanupError: null };
         case 'get_topology': return { physicalCores: [{ id: 0, lpIndices: [0, 1] }], logicalProcessors: [], totalLp: 2 };
         case 'enumerate_gpus': return [{ instanceId: 'gpu-1', friendlyName: 'Example GPU' }];
         case 'get_core_candidates': return [target];
@@ -55,7 +54,7 @@ export function mockTauri({ theme, language, compact = false }) {
           emit('update-state', { status: 'Available', currentVersion: '0.3.0', latestVersion: '0.4.0', progress: null, error: null }); return;
         case 'sample_gpu_interrupts': return { instanceId: 'gpu-1', driver: 'example.sys', cpus: [], graphicsKernelCpus: [], sampleSecs: 3, eventsLost: 0 };
         case 'cancel_benchmark': state.cancelRequested = true; return;
-        case 'open_data_folder': case 'acknowledge_migration': case 'retry_autostart_cleanup': return;
+        case 'open_data_folder': return;
         default: throw new Error(`Unexpected UI test IPC: ${cmd}`);
       }
     },

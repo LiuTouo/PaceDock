@@ -117,7 +117,7 @@ try {
   }
 
   const manifest = [
-    '# FrameAnchor GPU 基準測試內建資源的固定 SHA-256。',
+    '# PaceDock GPU 基準測試內建資源的固定 SHA-256。',
     '# 驗證：npm run verify:benchmark-assets；執行基準測試前也會驗證。',
     '# 來源：',
     '#   PresentMon-2.5.1-x64.exe — https://github.com/GameTechDev/PresentMon/releases/tag/v2.5.1（MIT）',

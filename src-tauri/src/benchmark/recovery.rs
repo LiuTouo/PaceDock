@@ -1,4 +1,4 @@
-//! 崩潰還原日誌：`%APPDATA%\FrameAnchor\benchmark-recovery.json`。
+//! 崩潰還原日誌：`%APPDATA%\PaceDock\benchmark-recovery.json`。
 //!
 //! 協定：
 //! - 第一次變更之前先 `begin`（stage=SnapshotTaken）寫入快照。
@@ -146,7 +146,7 @@ mod tests {
     fn temp_path(name: &str) -> PathBuf {
         let dir = std::env::temp_dir();
         dir.join(format!(
-            "frameanchor_recovery_test_{}_{}.json",
+            "pacedock_recovery_test_{}_{}.json",
             std::process::id(),
             name
         ))
@@ -210,7 +210,7 @@ mod tests {
     #[test]
     fn load_from_directory_is_error_not_none() {
         let dir =
-            std::env::temp_dir().join(format!("frameanchor_recovery_dir_{}", std::process::id()));
+            std::env::temp_dir().join(format!("pacedock_recovery_dir_{}", std::process::id()));
         std::fs::create_dir_all(&dir).unwrap();
         assert!(load_from(&dir).is_err());
         let _ = std::fs::remove_dir_all(&dir);

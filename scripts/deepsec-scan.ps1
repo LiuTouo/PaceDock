@@ -1,4 +1,4 @@
-# FrameAnchor DeepSec security scan wrapper
+# PaceDock DeepSec security scan wrapper
 # Usage: powershell -NoProfile -ExecutionPolicy Bypass -File scripts\deepsec-scan.ps1
 #
 # Why not scan the repository root directly? DeepSec does not read .gitignore,

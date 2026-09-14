@@ -5,7 +5,7 @@
       "attackPath": {
         "controls": [
           "task action \u7684 executable path \u6709\u96d9\u5f15\u865f\u5305\u8986\u3002",
-          "\u5efa\u7acb task \u7576\u4e0b FrameAnchor \u5df2\u63d0\u5347\u3002"
+          "\u5efa\u7acb task \u7576\u4e0b PaceDock \u5df2\u63d0\u5347\u3002"
         ],
         "dataflow": {
           "evidenceRefs": [
@@ -23,13 +23,13 @@
         },
         "preconditions": [
           "\u53d7\u5bb3\u8005\u70ba\u5177 split administrator token \u7684\u5e33\u6236\u3002",
-          "\u53d7\u5bb3\u8005\u66fe\u555f\u7528 FrameAnchor autostart\u3002",
+          "\u53d7\u5bb3\u8005\u66fe\u555f\u7528 PaceDock autostart\u3002",
           "current_exe \u6216\u4efb\u4e00\u53ef\u91cd\u5c0e\u7236\u8def\u5f91\u53ef\u7531 medium-integrity attacker \u4fee\u6539\u3002"
         ],
         "reachability": {
           "preconditions": [
             "\u53d7\u5bb3\u8005\u70ba\u5177 split administrator token \u7684\u5e33\u6236\u3002",
-            "\u53d7\u5bb3\u8005\u66fe\u555f\u7528 FrameAnchor autostart\u3002",
+            "\u53d7\u5bb3\u8005\u66fe\u555f\u7528 PaceDock autostart\u3002",
             "current_exe \u6216\u4efb\u4e00\u53ef\u91cd\u5c0e\u7236\u8def\u5f91\u53ef\u7531 medium-integrity attacker \u4fee\u6539\u3002"
           ],
           "summary": "\u5165\u53e3\u662f\u53ef\u5beb\u7684 task target path\uff1bsink \u662f Task Scheduler \u7684 HIGHEST process creation\u3002\u6392\u7a0b\u4fdd\u5b58\u7684\u662f\u5b57\u4e32\u8def\u5f91\uff0c\u672a\u4fdd\u5b58\u539f\u6a94 file identity\u3002"
@@ -186,7 +186,7 @@
       },
       "ruleId": "privilege-escalation.writable-scheduled-task-target",
       "severity": {
-        "changeConditions": "\u53d7\u5bb3\u8005\u70ba\u5177 split administrator token \u7684\u5e33\u6236\u3002\uff1b\u53d7\u5bb3\u8005\u66fe\u555f\u7528 FrameAnchor autostart\u3002\uff1bcurrent_exe \u6216\u4efb\u4e00\u53ef\u91cd\u5c0e\u7236\u8def\u5f91\u53ef\u7531 medium-integrity attacker \u4fee\u6539\u3002",
+        "changeConditions": "\u53d7\u5bb3\u8005\u70ba\u5177 split administrator token \u7684\u5e33\u6236\u3002\uff1b\u53d7\u5bb3\u8005\u66fe\u555f\u7528 PaceDock autostart\u3002\uff1bcurrent_exe \u6216\u4efb\u4e00\u53ef\u91cd\u5c0e\u7236\u8def\u5f91\u53ef\u7531 medium-integrity attacker \u4fee\u6539\u3002",
         "level": "high",
         "rationale": "\u6b64\u8def\u5f91\u53ef\u6301\u7e8c\u53d6\u5f97\u7ba1\u7406\u54e1\u7a0b\u5f0f\u78bc\u57f7\u884c\uff1b\u5c0d\u4f7f\u7528 split administrator token\u3001\u5df2\u555f\u7528 autostart \u4e14 target path \u53ef\u5beb\u7684\u90e8\u7f72\uff0c\u5229\u7528\u53ea\u9700\u6a94\u6848\u7f6e\u63db\u8207\u4e0b\u4e00\u6b21\u767b\u5165\u3002"
       },
@@ -238,12 +238,12 @@
         },
         "preconditions": [
           "\u81f3\u5c11\u4e00\u500b\u65e9\u65bc\u53d7\u4fdd\u8b77 System32 \u7684\u6709\u6548 executable \u641c\u5c0b\u76ee\u9304\u53ef\u7531 attacker \u5beb\u5165\u3002",
-          "\u53d7\u5bb3\u8005\u555f\u52d5 FrameAnchor \u4e26\u5b8c\u6210 UAC\uff0c\u6216\u7531 HIGHEST task \u555f\u52d5\u3002"
+          "\u53d7\u5bb3\u8005\u555f\u52d5 PaceDock \u4e26\u5b8c\u6210 UAC\uff0c\u6216\u7531 HIGHEST task \u555f\u52d5\u3002"
         ],
         "reachability": {
           "preconditions": [
             "\u81f3\u5c11\u4e00\u500b\u65e9\u65bc\u53d7\u4fdd\u8b77 System32 \u7684\u6709\u6548 executable \u641c\u5c0b\u76ee\u9304\u53ef\u7531 attacker \u5beb\u5165\u3002",
-            "\u53d7\u5bb3\u8005\u555f\u52d5 FrameAnchor \u4e26\u5b8c\u6210 UAC\uff0c\u6216\u7531 HIGHEST task \u555f\u52d5\u3002"
+            "\u53d7\u5bb3\u8005\u555f\u52d5 PaceDock \u4e26\u5b8c\u6210 UAC\uff0c\u6216\u7531 HIGHEST task \u555f\u52d5\u3002"
           ],
           "summary": "`build_tray` \u5230 `build_menu` \u518d\u5230 `autostart::is_enabled` \u662f\u7121\u4e92\u52d5 startup path\uff1b\u53e6\u5916\u5169\u500b sink \u5728 portable update \u8207 open-data-folder \u64cd\u4f5c\u53ef\u9054\u3002"
         }
@@ -411,7 +411,7 @@
       },
       "ruleId": "privilege-escalation.untrusted-system-tool-search",
       "severity": {
-        "changeConditions": "\u81f3\u5c11\u4e00\u500b\u65e9\u65bc\u53d7\u4fdd\u8b77 System32 \u7684\u6709\u6548 executable \u641c\u5c0b\u76ee\u9304\u53ef\u7531 attacker \u5beb\u5165\u3002\uff1b\u53d7\u5bb3\u8005\u555f\u52d5 FrameAnchor \u4e26\u5b8c\u6210 UAC\uff0c\u6216\u7531 HIGHEST task \u555f\u52d5\u3002",
+        "changeConditions": "\u81f3\u5c11\u4e00\u500b\u65e9\u65bc\u53d7\u4fdd\u8b77 System32 \u7684\u6709\u6548 executable \u641c\u5c0b\u76ee\u9304\u53ef\u7531 attacker \u5beb\u5165\u3002\uff1b\u53d7\u5bb3\u8005\u555f\u52d5 PaceDock \u4e26\u5b8c\u6210 UAC\uff0c\u6216\u7531 HIGHEST task \u555f\u52d5\u3002",
         "level": "high",
         "rationale": "`schtasks` sink \u5728\u6bcf\u6b21 tray \u5efa\u7acb\u6642\u81ea\u52d5\u5230\u9054\uff1b\u5c0d currentUser/portable \u53ef\u5beb\u641c\u5c0b\u76ee\u9304\u4e2d\u7684 resident local attacker\uff0c\u5f71\u97ff\u70ba\u76f4\u63a5 administrator code execution\u3002"
       },
@@ -452,7 +452,7 @@
             "temp.stage",
             "temp.script"
           ],
-          "summary": "attacker \u76e3\u770b\u56fa\u5b9a user TEMP path\uff0c\u65bc write/verify \u5f8c\u66ff\u63db `update.ps1` \u6216 `FrameAnchor_new.exe`\uff1belevated process/PowerShell\u91cd\u65b0\u4f9d\u8def\u5f91\u6d88\u8cbb\uff1b\u4efb\u610f script/PE\u7372\u5f97 administrator token\u3002"
+          "summary": "attacker \u76e3\u770b\u56fa\u5b9a user TEMP path\uff0c\u65bc write/verify \u5f8c\u66ff\u63db `update.ps1` \u6216 `PaceDock_new.exe`\uff1belevated process/PowerShell\u91cd\u65b0\u4f9d\u8def\u5f91\u6d88\u8cbb\uff1b\u4efb\u610f script/PE\u7372\u5f97 administrator token\u3002"
         },
         "impact": {
           "level": "high",
@@ -476,7 +476,7 @@
       },
       "codeEvidence": [
         {
-          "code": "let tmp_dir = std::env::temp_dir().join(\"frameanchor_update\");\nstd::fs::create_dir_all(&tmp_dir)?;\nlet tmp_exe = tmp_dir.join(\"FrameAnchor_new.exe\");\nlet mut out = std::fs::File::create(&tmp_exe)?;",
+          "code": "let tmp_dir = std::env::temp_dir().join(\"pacedock_update\");\nstd::fs::create_dir_all(&tmp_dir)?;\nlet tmp_exe = tmp_dir.join(\"PaceDock_new.exe\");\nlet mut out = std::fs::File::create(&tmp_exe)?;",
           "endLine": 475,
           "explanation": "\u56fa\u5b9a user TEMP \u8def\u5f91\u8207\u4e00\u822c File::create \u672a\u5efa\u7acb\u4e0d\u53ef\u8b8a file identity\u3002",
           "id": "temp.stage",
@@ -651,7 +651,7 @@
         "level": "high",
         "rationale": "\u653b\u64ca\u6210\u529f\u76f4\u63a5\u53d6\u5f97 administrator code execution\uff1b\u5c0d\u5df2\u99d0\u7559\u4e14\u80fd\u76e3\u770b\u4f7f\u7528\u8005 TEMP \u7684 attacker\uff0c\u5728\u4f7f\u7528\u8005\u89f8\u767c portable update \u5f8c\u8def\u5f91\u56fa\u5b9a\u4e14\u53ef\u91cd\u8a66\u3002"
       },
-      "summary": "portable updater \u9a57\u8b49\u8a18\u61b6\u9ad4\u4e2d\u7684 ZIP \u5f8c\uff0c\u628a executable/resources \u8207 `update.ps1` \u5beb\u5230\u56fa\u5b9a `%TEMP%\\frameanchor_update`\uff1belevated helper \u4e4b\u5f8c\u91cd\u65b0\u4f9d\u8def\u5f91\u958b\u555f\u8173\u672c\u4e26\u79fb\u52d5/\u555f\u52d5 staged executable\u3002\u4f4e\u5b8c\u6574\u6027\u540c\u5e33\u6236\u7a0b\u5e8f\u53ef\u7f6e\u63db\u9019\u4e9b\u7269\u4ef6\uff0c\u4f7f\u4efb\u610f script/PE \u4ee5\u7ba1\u7406\u54e1\u6b0a\u9650\u57f7\u884c\u3002",
+      "summary": "portable updater \u9a57\u8b49\u8a18\u61b6\u9ad4\u4e2d\u7684 ZIP \u5f8c\uff0c\u628a executable/resources \u8207 `update.ps1` \u5beb\u5230\u56fa\u5b9a `%TEMP%\\pacedock_update`\uff1belevated helper \u4e4b\u5f8c\u91cd\u65b0\u4f9d\u8def\u5f91\u958b\u555f\u8173\u672c\u4e26\u79fb\u52d5/\u555f\u52d5 staged executable\u3002\u4f4e\u5b8c\u6574\u6027\u540c\u5e33\u6236\u7a0b\u5e8f\u53ef\u7f6e\u63db\u9019\u4e9b\u7269\u4ef6\uff0c\u4f7f\u4efb\u610f script/PE \u4ee5\u7ba1\u7406\u54e1\u6b0a\u9650\u57f7\u884c\u3002",
       "taxonomy": {
         "category": "insecure-temporary-file",
         "cwe": [
@@ -706,7 +706,7 @@
           "\u5c0d\u5b8c\u6574\u88dd\u7f6e\u91cd\u555f\u5f71\u97ff\uff0cattacker\u9700\u63d0\u4f9b\u76ee\u524ddisplay adapter instance ID\u3002"
         ],
         "reachability": {
-          "attacker": "Same-user medium-integrity process able to write %APPDATA%\\FrameAnchor.",
+          "attacker": "Same-user medium-integrity process able to write %APPDATA%\\PaceDock.",
           "entrypoint": "benchmark-recovery.json, gpu-restore.json or benchmarks/<uuid>/session.json",
           "evidenceRefs": [
             "recovery.load",
@@ -716,7 +716,7 @@
           ],
           "outcome": "GPU policy integrity loss, display interruption or performance degradation.",
           "preconditions": [
-            "Victim later launches FrameAnchor elevated; session/restore routes additionally require the corresponding user action."
+            "Victim later launches PaceDock elevated; session/restore routes additionally require the corresponding user action."
           ],
           "sink": "RegSetValueExW/RegDeleteValueW and SetupAPI device restart",
           "summary": "Startup recovery is automatic when a forged journal uses PolicyApplied/DeviceRestarted. Manual restore and session apply require a UI/renderer trigger. The attacker must know a present GPU instance ID for successful restart."
@@ -1007,7 +1007,7 @@
         },
         "impact": {
           "level": "high",
-          "rationale": "\u4efb\u610fnative executable\u7e7c\u627fFrameAnchor administrator token\u3002"
+          "rationale": "\u4efb\u610fnative executable\u7e7c\u627fPaceDock administrator token\u3002"
         },
         "likelihood": {
           "level": "medium",
@@ -1887,7 +1887,7 @@
             "vendor.download",
             "vendor.digest"
           ],
-          "summary": "attacker\u66ff\u63db\u4e0a\u6e38versioned asset\uff1bmaintainer\u57f7\u884crefresh\uff1bscript\u63a5\u53d7bytes\u3001copy\u5165resources\u4e26\u751f\u6210matching SHA256SUMS\uff1breview/build\u5c07\u5176\u767c\u5e03\uff1bFrameAnchor elevated benchmark spawn\u57f7\u884c\u3002"
+          "summary": "attacker\u66ff\u63db\u4e0a\u6e38versioned asset\uff1bmaintainer\u57f7\u884crefresh\uff1bscript\u63a5\u53d7bytes\u3001copy\u5165resources\u4e26\u751f\u6210matching SHA256SUMS\uff1breview/build\u5c07\u5176\u767c\u5e03\uff1bPaceDock elevated benchmark spawn\u57f7\u884c\u3002"
         },
         "impact": {
           "level": "high",
@@ -2775,7 +2775,7 @@
       "attackPath": {
         "controls": [
           "task action \u7684 executable path \u6709\u96d9\u5f15\u865f\u5305\u8986\u3002",
-          "\u5efa\u7acb task \u7576\u4e0b FrameAnchor \u5df2\u63d0\u5347\u3002"
+          "\u5efa\u7acb task \u7576\u4e0b PaceDock \u5df2\u63d0\u5347\u3002"
         ],
         "dataflow": {
           "evidenceRefs": [
@@ -2793,13 +2793,13 @@
         },
         "preconditions": [
           "\u53d7\u5bb3\u8005\u70ba\u5177 split administrator token \u7684\u5e33\u6236\u3002",
-          "\u53d7\u5bb3\u8005\u66fe\u555f\u7528 FrameAnchor autostart\u3002",
+          "\u53d7\u5bb3\u8005\u66fe\u555f\u7528 PaceDock autostart\u3002",
           "current_exe \u6216\u4efb\u4e00\u53ef\u91cd\u5c0e\u7236\u8def\u5f91\u53ef\u7531 medium-integrity attacker \u4fee\u6539\u3002"
         ],
         "reachability": {
           "preconditions": [
             "\u53d7\u5bb3\u8005\u70ba\u5177 split administrator token \u7684\u5e33\u6236\u3002",
-            "\u53d7\u5bb3\u8005\u66fe\u555f\u7528 FrameAnchor autostart\u3002",
+            "\u53d7\u5bb3\u8005\u66fe\u555f\u7528 PaceDock autostart\u3002",
             "current_exe \u6216\u4efb\u4e00\u53ef\u91cd\u5c0e\u7236\u8def\u5f91\u53ef\u7531 medium-integrity attacker \u4fee\u6539\u3002"
           ],
           "summary": "\u5165\u53e3\u662f\u53ef\u5beb\u7684 task target path\uff1bsink \u662f Task Scheduler \u7684 HIGHEST process creation\u3002\u6392\u7a0b\u4fdd\u5b58\u7684\u662f\u5b57\u4e32\u8def\u5f91\uff0c\u672a\u4fdd\u5b58\u539f\u6a94 file identity\u3002"
@@ -2941,12 +2941,12 @@
         },
         "preconditions": [
           "\u81f3\u5c11\u4e00\u500b\u65e9\u65bc\u53d7\u4fdd\u8b77 System32 \u7684\u6709\u6548 executable \u641c\u5c0b\u76ee\u9304\u53ef\u7531 attacker \u5beb\u5165\u3002",
-          "\u53d7\u5bb3\u8005\u555f\u52d5 FrameAnchor \u4e26\u5b8c\u6210 UAC\uff0c\u6216\u7531 HIGHEST task \u555f\u52d5\u3002"
+          "\u53d7\u5bb3\u8005\u555f\u52d5 PaceDock \u4e26\u5b8c\u6210 UAC\uff0c\u6216\u7531 HIGHEST task \u555f\u52d5\u3002"
         ],
         "reachability": {
           "preconditions": [
             "\u81f3\u5c11\u4e00\u500b\u65e9\u65bc\u53d7\u4fdd\u8b77 System32 \u7684\u6709\u6548 executable \u641c\u5c0b\u76ee\u9304\u53ef\u7531 attacker \u5beb\u5165\u3002",
-            "\u53d7\u5bb3\u8005\u555f\u52d5 FrameAnchor \u4e26\u5b8c\u6210 UAC\uff0c\u6216\u7531 HIGHEST task \u555f\u52d5\u3002"
+            "\u53d7\u5bb3\u8005\u555f\u52d5 PaceDock \u4e26\u5b8c\u6210 UAC\uff0c\u6216\u7531 HIGHEST task \u555f\u52d5\u3002"
           ],
           "summary": "`build_tray` \u5230 `build_menu` \u518d\u5230 `autostart::is_enabled` \u662f\u7121\u4e92\u52d5 startup path\uff1b\u53e6\u5916\u5169\u500b sink \u5728 portable update \u8207 open-data-folder \u64cd\u4f5c\u53ef\u9054\u3002"
         }
@@ -3088,7 +3088,7 @@
             "temp.stage",
             "temp.script"
           ],
-          "summary": "attacker \u76e3\u770b\u56fa\u5b9a user TEMP path\uff0c\u65bc write/verify \u5f8c\u66ff\u63db `update.ps1` \u6216 `FrameAnchor_new.exe`\uff1belevated process/PowerShell\u91cd\u65b0\u4f9d\u8def\u5f91\u6d88\u8cbb\uff1b\u4efb\u610f script/PE\u7372\u5f97 administrator token\u3002"
+          "summary": "attacker \u76e3\u770b\u56fa\u5b9a user TEMP path\uff0c\u65bc write/verify \u5f8c\u66ff\u63db `update.ps1` \u6216 `PaceDock_new.exe`\uff1belevated process/PowerShell\u91cd\u65b0\u4f9d\u8def\u5f91\u6d88\u8cbb\uff1b\u4efb\u610f script/PE\u7372\u5f97 administrator token\u3002"
         },
         "impact": {
           "level": "high",
@@ -3112,7 +3112,7 @@
       },
       "codeEvidence": [
         {
-          "code": "let tmp_dir = std::env::temp_dir().join(\"frameanchor_update\");\nstd::fs::create_dir_all(&tmp_dir)?;\nlet tmp_exe = tmp_dir.join(\"FrameAnchor_new.exe\");\nlet mut out = std::fs::File::create(&tmp_exe)?;",
+          "code": "let tmp_dir = std::env::temp_dir().join(\"pacedock_update\");\nstd::fs::create_dir_all(&tmp_dir)?;\nlet tmp_exe = tmp_dir.join(\"PaceDock_new.exe\");\nlet mut out = std::fs::File::create(&tmp_exe)?;",
           "endLine": 475,
           "explanation": "\u56fa\u5b9a user TEMP \u8def\u5f91\u8207\u4e00\u822c File::create \u672a\u5efa\u7acb\u4e0d\u53ef\u8b8a file identity\u3002",
           "id": "temp.stage",
@@ -3218,7 +3218,7 @@
         "level": "high",
         "rationale": "\u653b\u64ca\u6210\u529f\u76f4\u63a5\u53d6\u5f97 administrator code execution\uff1b\u5c0d\u5df2\u99d0\u7559\u4e14\u80fd\u76e3\u770b\u4f7f\u7528\u8005 TEMP \u7684 attacker\uff0c\u5728\u4f7f\u7528\u8005\u89f8\u767c portable update \u5f8c\u8def\u5f91\u56fa\u5b9a\u4e14\u53ef\u91cd\u8a66\u3002"
       },
-      "summary": "portable updater \u9a57\u8b49\u8a18\u61b6\u9ad4\u4e2d\u7684 ZIP \u5f8c\uff0c\u628a executable/resources \u8207 `update.ps1` \u5beb\u5230\u56fa\u5b9a `%TEMP%\\frameanchor_update`\uff1belevated helper \u4e4b\u5f8c\u91cd\u65b0\u4f9d\u8def\u5f91\u958b\u555f\u8173\u672c\u4e26\u79fb\u52d5/\u555f\u52d5 staged executable\u3002\u4f4e\u5b8c\u6574\u6027\u540c\u5e33\u6236\u7a0b\u5e8f\u53ef\u7f6e\u63db\u9019\u4e9b\u7269\u4ef6\uff0c\u4f7f\u4efb\u610f script/PE \u4ee5\u7ba1\u7406\u54e1\u6b0a\u9650\u57f7\u884c\u3002",
+      "summary": "portable updater \u9a57\u8b49\u8a18\u61b6\u9ad4\u4e2d\u7684 ZIP \u5f8c\uff0c\u628a executable/resources \u8207 `update.ps1` \u5beb\u5230\u56fa\u5b9a `%TEMP%\\pacedock_update`\uff1belevated helper \u4e4b\u5f8c\u91cd\u65b0\u4f9d\u8def\u5f91\u958b\u555f\u8173\u672c\u4e26\u79fb\u52d5/\u555f\u52d5 staged executable\u3002\u4f4e\u5b8c\u6574\u6027\u540c\u5e33\u6236\u7a0b\u5e8f\u53ef\u7f6e\u63db\u9019\u4e9b\u7269\u4ef6\uff0c\u4f7f\u4efb\u610f script/PE \u4ee5\u7ba1\u7406\u54e1\u6b0a\u9650\u57f7\u884c\u3002",
       "taxonomy": {
         "category": "insecure-temporary-file",
         "cwe": [
@@ -3435,7 +3435,7 @@
         },
         "impact": {
           "level": "high",
-          "rationale": "\u4efb\u610fnative executable\u7e7c\u627fFrameAnchor administrator token\u3002"
+          "rationale": "\u4efb\u610fnative executable\u7e7c\u627fPaceDock administrator token\u3002"
         },
         "likelihood": {
           "level": "medium",
@@ -4967,7 +4967,7 @@
           "rationale": "Conditional on the stated attacker prerequisites."
         },
         "preconditions": [
-          "same-user medium-integrity actor\u53ef\u5beb%APPDATA%\\FrameAnchor\u3002",
+          "same-user medium-integrity actor\u53ef\u5beb%APPDATA%\\PaceDock\u3002",
           "session\u8def\u5f91\u53e6\u9700\u4f7f\u7528\u8005\u89f8\u767capply\u3002"
         ],
         "reachability": {
@@ -5609,7 +5609,7 @@
             "vendor.download",
             "vendor.digest"
           ],
-          "summary": "attacker\u66ff\u63db\u4e0a\u6e38versioned asset\uff1bmaintainer\u57f7\u884crefresh\uff1bscript\u63a5\u53d7bytes\u3001copy\u5165resources\u4e26\u751f\u6210matching SHA256SUMS\uff1breview/build\u5c07\u5176\u767c\u5e03\uff1bFrameAnchor elevated benchmark spawn\u57f7\u884c\u3002"
+          "summary": "attacker\u66ff\u63db\u4e0a\u6e38versioned asset\uff1bmaintainer\u57f7\u884crefresh\uff1bscript\u63a5\u53d7bytes\u3001copy\u5165resources\u4e26\u751f\u6210matching SHA256SUMS\uff1breview/build\u5c07\u5176\u767c\u5e03\uff1bPaceDock elevated benchmark spawn\u57f7\u884c\u3002"
         },
         "impact": {
           "level": "high",

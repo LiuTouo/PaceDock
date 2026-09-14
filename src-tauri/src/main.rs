@@ -1,4 +1,4 @@
-//! FrameAnchor 主程式（PLAN §4 架構）。
+//! PaceDock 主程式（PLAN §4 架構）。
 //! 單一 exe、requireAdministrator；GPU 調校完成後直接退出。
 //! Release 用 GUI subsystem 避免 CMD 閃爍；debug 保留 console。
 
@@ -11,6 +11,7 @@ mod config;
 mod error;
 mod gpu;
 mod gpu_interrupts;
+mod health;
 mod model;
 mod process;
 mod state_auth;
@@ -43,7 +44,7 @@ fn main() {
 
     // GUI subsystem 看不到 panic 輸出，寫到暫存檔方便診斷
     std::panic::set_hook(Box::new(|info| {
-        let path = std::env::temp_dir().join("frameanchor-panic.log");
+        let path = std::env::temp_dir().join("pacedock-panic.log");
         let _ = std::fs::write(&path, format!("{info}\n"));
     }));
 
@@ -127,9 +128,6 @@ fn main() {
             if !minimized && !start_min {
                 show_main_window(&handle);
             }
-            tauri::async_runtime::spawn_blocking(|| {
-                let _ = autostart::cleanup_legacy_autostart();
-            });
             Ok(())
         })
         .invoke_handler(tauri::generate_handler![
@@ -151,9 +149,6 @@ fn main() {
             benchmark::ipc::get_core_candidates,
             benchmark::ipc::get_quick_schedule,
             benchmark::ipc::apply_gpu_core,
-            autostart::get_migration_status,
-            autostart::acknowledge_migration,
-            autostart::retry_autostart_cleanup,
             benchmark::ipc::get_benchmark_state,
             benchmark::ipc::list_benchmark_sessions,
             benchmark::ipc::get_benchmark_session,
@@ -161,6 +156,12 @@ fn main() {
             benchmark::ipc::get_benchmark_storage_info,
             benchmark::ipc::get_gpu_affinity_policy,
             gpu_interrupts::sample_gpu_interrupts,
+            gpu_interrupts::verify_interrupt_affinity,
+            gpu_interrupts::scan_dpc_offenders,
+            health::get_system_health,
+            benchmark::ipc::get_msi_status,
+            benchmark::ipc::apply_msi,
+            benchmark::ipc::restore_msi,
             benchmark::ipc::restore_previous_gpu_affinity,
             benchmark::ipc::start_gpu_benchmark,
             benchmark::ipc::cancel_benchmark,
@@ -192,7 +193,7 @@ fn main() {
             }
         })
         .build(tauri::generate_context!())
-        .expect("error while building FrameAnchor")
+        .expect("error while building PaceDock")
         .run(|app, event| {
             match event {
                 tauri::RunEvent::ExitRequested { api, .. } => {
@@ -220,7 +221,7 @@ fn show_startup_error(error: &str) {
     use std::os::windows::ffi::OsStrExt;
 
     let message = format!(
-        "無法讀取 FrameAnchor 設定，程式將結束。\n請確認設定檔未被防毒軟體或同步程式鎖定。\n\nFrameAnchor cannot read its configuration and will exit.\nCheck whether antivirus or sync software has locked the file.\n\n{}\n\n{}",
+        "無法讀取 PaceDock 設定，程式將結束。\n請確認設定檔未被防毒軟體或同步程式鎖定。\n\nPaceDock cannot read its configuration and will exit.\nCheck whether antivirus or sync software has locked the file.\n\n{}\n\n{}",
         config::config_path().display(),
         error
     );
@@ -230,7 +231,7 @@ fn show_startup_error(error: &str) {
             .chain(std::iter::once(0))
             .collect::<Vec<_>>()
     };
-    let title = wide("FrameAnchor — CONFIG_FAILED");
+    let title = wide("PaceDock — CONFIG_FAILED");
     let message = wide(&message);
     unsafe {
         let _ = MessageBoxW(

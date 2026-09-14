@@ -1,5 +1,5 @@
-//! 基準測試視窗配置：把 workload 固定在 FrameAnchor 主視窗所在 monitor 的
-//! rcWork（工作區，排除工作列）左上，FrameAnchor 暫時 compact 成 480×300
+//! 基準測試視窗配置：把 workload 固定在 PaceDock 主視窗所在 monitor 的
+//! rcWork（工作區，排除工作列）左上，PaceDock 暫時 compact 成 480×300
 //! logical px、右下角 16 logical px 邊距（同螢幕）。
 //!
 //! 空間預檢：以 DPI 換算 compact 尺寸與 workload config client size，檢查兩者在
@@ -68,7 +68,7 @@ pub struct LayoutPlan {
     pub rc_work: Rect,
     /// workload 外框估計矩形（rcWork 左上，client size 換算；HWND 建立後以實測為準）。
     pub workload_rect: Rect,
-    /// FrameAnchor compact 矩形（rcWork 右下角、含邊距）。
+    /// PaceDock compact 矩形（rcWork 右下角、含邊距）。
     pub compact_rect: Rect,
     /// 縮放因子（dpi/96）。
     pub scale: f64,

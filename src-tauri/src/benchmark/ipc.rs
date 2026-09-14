@@ -69,6 +69,65 @@ pub fn get_gpu_affinity_policy(
         .map_err(|e| e.code().to_string())
 }
 
+// ── GPU MSI 模式 ────────────────────────────────────────────────────────
+
+/// GPU MSI 模式狀態（value = MSISupported 原值；None = 未設定/金鑰不存在）
+#[derive(serde::Serialize)]
+#[serde(rename_all = "camelCase")]
+pub struct MsiStatus {
+    pub instance_id: String,
+    pub value: Option<u32>,
+    /// 還原記錄存在（此前由 PaceDock 啟用，可還原）
+    pub restorable: bool,
+}
+
+/// 查詢 GPU MSI 模式（唯讀；不需要排他權）
+#[tauri::command]
+pub async fn get_msi_status(
+    state: State<'_, Arc<AppState>>,
+    instance_id: String,
+) -> Result<MsiStatus, String> {
+    let backend = state.benchmark.backend.clone();
+    tauri::async_runtime::spawn_blocking(move || {
+        let snap = backend
+            .read_msi_supported(&instance_id)
+            .map_err(|e| e.code().to_string())?;
+        Ok(MsiStatus {
+            restorable: super::manager::msi_record_path().exists(),
+            instance_id,
+            value: snap.as_dword(),
+        })
+    })
+    .await
+    .map_err(|e| {
+        log::error!("MSI status worker: {e}");
+        "GPU_MSI_FAILED".to_string()
+    })?
+}
+
+/// 啟用 GPU MSI 模式（MSISupported=1 + 裝置重啟 + 回讀驗證）
+#[tauri::command]
+pub async fn apply_msi(state: State<'_, Arc<AppState>>, instance_id: String) -> Result<(), String> {
+    let manager = state.benchmark.clone();
+    let guard = manager.reserve_mutation()?;
+    tauri::async_runtime::spawn_blocking(move || manager.apply_msi_reserved(guard, &instance_id))
+        .await
+        .map_err(|e| e.to_string())?
+}
+
+/// 關閉 GPU MSI 模式（寫回套用前快照 + 裝置重啟 + 驗證）
+#[tauri::command]
+pub async fn restore_msi(
+    state: State<'_, Arc<AppState>>,
+    instance_id: String,
+) -> Result<(), String> {
+    let manager = state.benchmark.clone();
+    let guard = manager.reserve_mutation()?;
+    tauri::async_runtime::spawn_blocking(move || manager.restore_msi_reserved(guard, &instance_id))
+        .await
+        .map_err(|e| e.to_string())?
+}
+
 #[tauri::command]
 pub fn get_core_candidates(state: State<Arc<AppState>>) -> Vec<super::physical::CoreTarget> {
     super::physical::candidates(&state.topology)

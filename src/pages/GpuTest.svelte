@@ -5,9 +5,11 @@
   import * as ipc from '../lib/ipc';
   import { benchmarkProgress, benchmarkState, topology, gpuOperationBusy } from '../lib/stores';
   import { coreLabel, policyIndices } from '../lib/core';
-  import type { AffinityPolicy, BenchmarkConfig, CoreCapture, CoreTarget, GameCaptureProgress, GameCaptureRecord, GameWindow, GpuDevice, QuickSchedule, SessionDetail, SessionSummary } from '../lib/types';
+  import type { AffinityPolicy, BenchmarkConfig, CoreCapture, CoreTarget, GameCaptureProgress, GameCaptureRecord, GameWindow, GpuDevice, InterruptVerification, MsiStatus, QuickSchedule, SessionDetail, SessionSummary } from '../lib/types';
   import ConfirmDialog from '../components/ConfirmDialog.svelte';
   import GpuInterrupts from '../components/GpuInterrupts.svelte';
+  import SystemHealth from '../components/SystemHealth.svelte';
+  import DpcScan from '../components/DpcScan.svelte';
 
   let devices = $state<GpuDevice[]>([]);
   let targets = $state<CoreTarget[]>([]);
@@ -21,11 +23,13 @@
   let history = $state<SessionSummary[]>([]);
   let detail = $state<SessionDetail | null>(null);
   let policy = $state<AffinityPolicy | null>(null);
+  let msi = $state<MsiStatus | null>(null);
+  let verification = $state<InterruptVerification | null>(null);
   let manual = $state<number | null>(null), chosen = $state<number | null>(null);
   let section = $state<'test' | 'results' | 'measure'>('test');
   let busy = $state(false), cancelSent = $state(false);
   let error = $state(''), notice = $state('');
-  let action = $state<'start' | 'apply' | 'manual' | 'restore' | 'delete' | 'delCapture' | null>(null);
+  let action = $state<'start' | 'apply' | 'manual' | 'restore' | 'delete' | 'delCapture' | 'msi' | 'msiRestore' | null>(null);
   // 遊戲量測狀態
   let games = $state<GameWindow[]>([]);
   let captureGame = $state('');
@@ -59,9 +63,17 @@
     if (core) return label({ coreId: core.id, lpIndices: indices });
     return indices.length ? `LP ${indices.join($locale === 'en' ? ', ' : '、')}` : $t('quick.emptyMask');
   });
+  const en = $derived($locale === 'en');
+  const driftAlert = $derived($benchmarkState?.policyDrift === 'Drifted');
+  const msiText = $derived.by(() => {
+    if (!msi) return en ? 'Not detected.' : '尚未偵測。';
+    if (msi.value === 1) return en ? 'Message Signaled Interrupts enabled (lower interrupt latency).' : '訊息號誌中斷（MSI）已啟用，中斷延遲較低。';
+    if (msi.value === 0) return en ? 'Line-based interrupts in use. Enabling MSI can reduce interrupt latency on older GPUs.' : '目前為行線中斷（line-based）。舊款 GPU 啟用 MSI 可降低中斷延遲（套用後會重啟裝置）。';
+    return en ? 'Not configured; the driver default applies.' : '未設定，使用驅動預設值。';
+  });
   const confirmTarget = $derived(targets.find(c => c.coreId === manual));
   const resultTarget = $derived(quick?.retest.find(c => c.target.coreId === chosen)?.target);
-  const confirmMessage = $derived(action === 'start' ? $t('quick.startConfirm') : action === 'restore' ? $t('quick.restoreConfirm') : action === 'delete' ? $t('quick.deleteConfirm') : action === 'delCapture' ? $t('measure.deleteConfirm') : `${$t('quick.applyConfirm')} ${action === 'manual' && confirmTarget ? label(confirmTarget) : resultTarget ? label(resultTarget) : ''}${action === 'manual' ? ` — ${$t('quick.untested')}` : ''}`);
+  const confirmMessage = $derived(action === 'start' ? $t('quick.startConfirm') : action === 'restore' ? $t('quick.restoreConfirm') : action === 'delete' ? $t('quick.deleteConfirm') : action === 'delCapture' ? $t('measure.deleteConfirm') : action === 'msi' ? $t('quick.msiConfirm') : action === 'msiRestore' ? $t('quick.msiRestoreConfirm') : `${$t('quick.applyConfirm')} ${action === 'manual' && confirmTarget ? label(confirmTarget) : resultTarget ? label(resultTarget) : ''}${action === 'manual' ? ` — ${$t('quick.untested')}` : ''}`);
 
   $effect(() => {
     const request = config;
@@ -76,7 +88,9 @@
     const instance = gpu;
     let active = true;
     policy = null;
+    msi = null;
     if (instance) ipc.getGpuAffinityPolicy(instance).then(v => { if (active) policy = v; }).catch(e => { if (active) error = String(e); });
+    if (instance) ipc.getMsiStatus(instance).then(v => { if (active) msi = v; }).catch(() => { if (active) msi = null; });
     return () => { active = false; };
   });
   $effect(() => {
@@ -143,6 +157,8 @@
       { label: '0.1% low', a: a.metrics.p01Low, b: b.metrics.p01Low, relative: true },
       { label: 'MAD %', a: a.metrics.frametimeMadPct, b: b.metrics.frametimeMadPct, relative: false },
       { label: 'Spike %', a: a.metrics.spikeRatePct, b: b.metrics.spikeRatePct, relative: false },
+      { label: $t('measure.rowDisplayP99'), a: a.metrics.displayLatencyP99Ms, b: b.metrics.displayLatencyP99Ms, relative: false },
+      { label: $t('measure.rowDropped'), a: a.metrics.droppedPct, b: b.metrics.droppedPct, relative: false },
       { label: 'Frames', a: a.metrics.sampleCount, b: b.metrics.sampleCount, relative: false },
     ];
   });
@@ -172,13 +188,16 @@
     busy = true; gpuOperationBusy.set(true); error = ''; notice = '';
     try {
       if (pending === 'start') { cancelSent = false; await ipc.startGpuBenchmark(config); benchmarkState.set(await ipc.getBenchmarkState()); }
-      if (pending === 'apply' && detail && chosen !== null) await ipc.applyGpuCore(detail.summary.gpuInstanceId, chosen, detail.summary.id);
-      if (pending === 'manual' && manual !== null) await ipc.applyGpuCore(gpu, manual, null);
+      if (pending === 'apply' && detail && chosen !== null) { await ipc.applyGpuCore(detail.summary.gpuInstanceId, chosen, detail.summary.id); void runVerification(detail.summary.gpuInstanceId, chosen); }
+      if (pending === 'manual' && manual !== null) { await ipc.applyGpuCore(gpu, manual, null); void runVerification(gpu, manual); }
       if (pending === 'restore') await ipc.restorePreviousGpuAffinity();
+      if (pending === 'msi' && gpu) await ipc.applyMsi(gpu);
+      if (pending === 'msiRestore' && gpu) await ipc.restoreMsi(gpu);
       if (pending === 'delete' && detail) { await ipc.deleteBenchmarkSession(detail.summary.id); detail = null; chosen = null; await refreshHistory(); }
       if (pending === 'delCapture' && pickA) { await ipc.deleteGameCapture(pickA); if (pickB === pickA) pickB = ''; pickA = ''; await refreshCaptures(); }
       if (pending !== 'start') notice = $t('quick.done');
       if (gpu) policy = await ipc.getGpuAffinityPolicy(gpu);
+      if (gpu && (pending === 'msi' || pending === 'msiRestore')) msi = await ipc.getMsiStatus(gpu);
     } catch (e) { error = String(e); }
     finally { try { benchmarkState.set(await ipc.getBenchmarkState()); } finally { busy = false; gpuOperationBusy.set(false); } }
   }
@@ -186,6 +205,23 @@
     cancelSent = true;
     try { await ipc.cancelBenchmark(); } catch (e) { cancelSent = false; error = String(e); }
   }
+  // 套用後背景落點驗證：實測 ISR+DPC 是否落在釘選 LP（不阻塞套用流程）
+  async function runVerification(instanceId: string, coreId: number | null) {
+    const fromDetail = detail?.summary.quick?.candidates.find(c => c.coreId === coreId);
+    const lps = fromDetail?.lpIndices ?? targets.find(c => c.coreId === coreId)?.lpIndices ?? [];
+    if (!instanceId || !lps.length) return;
+    verification = null;
+    try { verification = await ipc.verifyInterruptAffinity(instanceId, lps); } catch (e) { error = String(e); }
+  }
+  const verificationText = $derived.by(() => {
+    if (!verification) return '';
+    const en0 = en;
+    const pct = verification.onPinnedPct.toFixed(1);
+    const base = `${verification.pinnedEvents.toLocaleString()} / ${verification.totalEvents.toLocaleString()} · ${pct}%`;
+    if (verification.verdict === 'passed') return en0 ? `Verified: ${base} of driver interrupt/DPC events landed on the pinned core.` : `已驗證：${base} 的驅動中斷/DPC 事件落在釘選核心。`;
+    if (verification.verdict === 'failed') return en0 ? `Only ${base} of events landed on the pinned core; the policy may not be effective.` : `僅 ${base} 的事件落在釘選核心，政策可能未生效。`;
+    return en0 ? 'No interrupt events observed during sampling; cannot verify.' : '取樣期間未觀測到中斷事件，無法驗證。';
+  });
   function toggle(id: number, checked: boolean) { selected = checked ? [...selected, id] : selected.filter(c => c !== id); }
   function number(value: number | null | undefined) { return value == null ? '—' : value.toFixed(3); }
 </script>
@@ -212,7 +248,40 @@
       <div><strong>{$t('quick.currentPolicy')} — {devices.find(d => d.instanceId === gpu)?.friendlyName ?? gpu}</strong><p>{policyText}</p><small>DevicePolicy: {policy?.devicePolicy.bytes?.join(', ') ?? '—'}</small></div>
       <button disabled={locked} onclick={() => action = 'restore'}>{$t('quick.restore')}</button>
     </section>
+    {#if driftAlert}
+      <section class="panel policy-row drift-banner">
+        <div>
+          <strong>{en ? 'Policy has been changed outside PaceDock' : '政策已被 PaceDock 以外的方式修改'}</strong>
+          <p class="hint">{en ? `Applied core no longer matches the registry (core ${$benchmarkState?.appliedCore ?? '—'}). Re-apply or restore.` : `已套用核心與 registry 不符（核心 ${$benchmarkState?.appliedCore ?? '—'}）。請重新套用或還原。`}</p>
+        </div>
+        <div class="start-row">
+          {#if $benchmarkState?.appliedCore != null}
+            <button disabled={locked} onclick={() => { manual = $benchmarkState?.appliedCore ?? null; action = 'manual'; }}>{$t('quick.apply')}</button>
+          {/if}
+          <button disabled={locked} onclick={() => action = 'restore'}>{$t('quick.restore')}</button>
+        </div>
+      </section>
+    {/if}
+    <section class="panel policy-row">
+      <div><strong>MSI</strong><p>{msiText}</p></div>
+      {#if msi?.value === 0}
+        <button disabled={locked} onclick={() => action = 'msi'}>{$t('quick.msiEnable')}</button>
+      {:else if msi?.restorable}
+        <button disabled={locked} onclick={() => action = 'msiRestore'}>{$t('quick.msiRestore')}</button>
+      {/if}
+    </section>
     <GpuInterrupts instanceId={gpu} locked={!!locked} />
+    <DpcScan />
+    <SystemHealth />
+    {#if verification}
+      <section class="panel policy-row">
+        <div>
+          <strong>{en ? 'Interrupt placement check' : '中斷落點驗證'}</strong>
+          <p class="hint">{verificationText}</p>
+          {#if verification.eventsLost}<small>{en ? 'Sampling reported lost events; re-run for a definitive result.' : '取樣有遺失事件，建議重新驗證。'}</small>{/if}
+        </div>
+      </section>
+    {/if}
     {#if section === 'test'}
       <section class="panel">
         <label class="field">GPU<select bind:value={gpu} disabled={locked}>{#each devices as device}<option value={device.instanceId}>{device.friendlyName}</option>{/each}</select></label>
@@ -302,6 +371,14 @@
             {#if quick.status === 'Close' || quick.status === 'Reversed'}<p>{$t('quick.manualChoice')}</p>{/if}
             <h3>{$t('quick.retestResults')}</h3>
             {@render resultTable(quick.retest, true)}
+            {#if quick.baseline}
+              <section class="baseline-banner">
+                <p><strong>{$t(`quick.baseline.${quick.baseline.verdict}`)}</strong>{#if quick.baseline.p1ImprovementPct != null} · {quick.baseline.p1ImprovementPct >= 0 ? '+' : ''}{quick.baseline.p1ImprovementPct.toFixed(1)}% 1% low{/if}{#if quick.baseline.avgImprovementPct != null} · {quick.baseline.avgImprovementPct >= 0 ? '+' : ''}{quick.baseline.avgImprovementPct.toFixed(1)}% Avg FPS{/if}</p>
+                <p class="hint">{$t('quick.baseline.hint')}</p>
+              </section>
+            {:else}
+              <p class="hint">{$t('quick.baseline.none')}</p>
+            {/if}
             <button class="primary" disabled={locked || !eligible || chosen === null} onclick={() => action = 'apply'}>{$t('quick.applySelected')}</button>
             <details><summary>{$t('quick.screenResults')}</summary>{@render resultTable(quick.screening, false)}</details>
             <details><summary>{$t('quick.order')}</summary><p>Seed: {quick.seed}</p><p>{$t('quick.screenResults')}: {quick.screeningOrder.map(id => quick.candidates.find(c => c.coreId === id)).filter((c): c is CoreTarget => !!c).map(label).join(' → ')}</p><p>{$t('quick.retestResults')}: {quick.retestOrder.map(id => quick.candidates.find(c => c.coreId === id)).filter((c): c is CoreTarget => !!c).map(label).join(' → ')}</p></details>
@@ -317,7 +394,7 @@
 </div>
 
 {#snippet resultTable(rows: CoreCapture[], selectable: boolean)}
-<div class="table-wrap"><table><thead><tr><th>{$t('quick.core')}</th><th>{$t('quick.score')}</th><th>Avg FPS</th><th>1% low</th><th>0.1% low</th><th>MAD %</th><th>Spike %</th></tr></thead><tbody>{#each rows as row}<tr><td>{#if selectable}<label><input type="radio" name="result-core" value={row.target.coreId} bind:group={chosen} disabled={locked || !eligible} />{label(row.target)}</label>{:else}{label(row.target)}{/if}</td><td>{number(row.score)}</td><td>{number(row.metrics.avgFps)}</td><td>{number(row.metrics.p1Low)}</td><td>{number(row.metrics.p01Low)}</td><td>{number(row.metrics.frametimeMadPct)}</td><td>{number(row.metrics.spikeRatePct)}</td></tr>{/each}</tbody></table></div>
+<div class="table-wrap"><table><thead><tr><th>{$t('quick.core')}</th><th>{$t('quick.score')}</th><th>Avg FPS</th><th>1% low</th><th>0.1% low</th><th>MAD %</th><th>Spike %</th><th>{$t('quick.colDisplayP99')}</th><th>{$t('quick.colDropped')}</th></tr></thead><tbody>{#each rows as row}<tr><td>{#if selectable}<label><input type="radio" name="result-core" value={row.target.coreId} bind:group={chosen} disabled={locked || !eligible} />{label(row.target)}</label>{:else}{label(row.target)}{/if}</td><td>{number(row.score)}</td><td>{number(row.metrics.avgFps)}</td><td>{number(row.metrics.p1Low)}</td><td>{number(row.metrics.p01Low)}</td><td>{number(row.metrics.frametimeMadPct)}</td><td>{number(row.metrics.spikeRatePct)}</td><td>{number(row.metrics.displayLatencyP99Ms)}</td><td>{number(row.metrics.droppedPct)}</td></tr>{/each}</tbody></table></div>
 {/snippet}
 <ConfirmDialog open={action !== null} title={$t('quick.confirm')} message={confirmMessage} confirmLabel={$t('quick.confirm')} cancelLabel={$t('quick.back')} busy={busy} danger={action === 'delete' || action === 'delCapture'} onconfirm={confirm} oncancel={() => action = null} />
 
@@ -340,6 +417,7 @@
   th:first-child, td:first-child { text-align: left; }
   progress { width: 100%; height: 10px; accent-color: var(--accent); }
   .error { color: var(--danger); }
+  .drift-banner { border-color: var(--danger); }
   .compact { gap: 4px; height: 100%; min-height: 0; }
   .compact .panel { padding: 12px; }
   .compact .progress-panel { display: flex; flex-direction: column; gap: 8px; flex: 1; min-height: 0; }

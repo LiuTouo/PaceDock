@@ -53,9 +53,6 @@
   let updateConfirmOpen = $state(false);
   let aboutOpen = $state(false);
   let exitBlocked = $state(false);
-  let migration = $state<import('./lib/types').MigrationStatus | null>(null);
-  async function dismissMigration() { await ipc.acknowledgeMigration(); if (migration) migration.noticeRequired = false; }
-  async function retryMigration() { try { await ipc.retryAutostartCleanup(); } finally { migration = await ipc.getMigrationStatus(); } }
 
 
   onMount(() => {
@@ -64,7 +61,6 @@
     (async () => {
       unlisteners.push(await listen('gpu-exit-blocked', () => { exitBlocked = true; }));
       unlisteners.push(await listen('show-about', () => { aboutOpen = true; }));
-      migration = await ipc.getMigrationStatus();
       topology.set(await ipc.getTopology());
       const s = await ipc.getSettings();
       settings.set(s);
@@ -144,7 +140,7 @@
       <svg class="brand-icon" viewBox="0 0 24 24" aria-hidden="true">
         <path d="M12 2L2 7l10 5 10-5-10-5zM2 17l10 5 10-5M2 12l10 5 10-5" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"/>
       </svg>
-      <span class="brand-text">Frame<span class="brand-accent">Anchor</span></span>
+      <span class="brand-text">Pace<span class="brand-accent">Dock</span></span>
     </div>
 
     <div class="nav-items">
@@ -173,8 +169,6 @@
   <!-- 主內容區 -->
   <main class="content">
     {#if exitBlocked}<div role="alert" class="panel"><p>{$t('quick.exitBlocked')}</p><button onclick={() => exitBlocked = false}>{$t('quick.dismiss')}</button></div>{/if}
-    {#if !compact && migration?.noticeRequired}<div role="status" class="panel"><p>{$t('quick.migration')}</p><button onclick={dismissMigration}>{$t('quick.dismiss')}</button></div>{/if}
-    {#if !compact && migration?.cleanupError}<div role="alert" class="panel"><p>{$t('quick.cleanupFailed')}: {migration.cleanupError}</p><button onclick={retryMigration}>{$t('quick.retry')}</button></div>{/if}
     {#if $updateState?.status === 'Available' && !updateBannerDismissed && !compact}
       <div class="update-banner" role="status">
         <svg class="banner-icon" viewBox="0 0 24 24" aria-hidden="true">

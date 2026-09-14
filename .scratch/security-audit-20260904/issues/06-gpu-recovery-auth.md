@@ -8,7 +8,7 @@
 
 1. **HMAC 認證(核心)** — 新模組 `state_auth.rs`:HMAC-SHA256 認證特權狀態檔
    (recovery journal、restore record、session.json)。key(32 bytes,兩組 UUID v4)
-   存於 `%PROGRAMDATA%\FrameAnchor\state.key`,目錄以 `D:P(A;;FA;;;BA)(A;;FA;;;SY)`
+   存於 `%PROGRAMDATA%\PaceDock\state.key`,目錄以 `D:P(A;;FA;;;BA)(A;;FA;;;SY)`
    保護(同帳戶 medium-integrity 程序不可讀,無法重算 MAC)。寫入以暫存 + 原子
    rename,平行建立競態安全;MAC 旁檔缺失/不符一律 Err(fail closed)。
    - `recovery::save_at/load_from`、`write_restore_record/load_restore_record`、

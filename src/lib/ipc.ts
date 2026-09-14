@@ -6,6 +6,10 @@ import type {
   GpuDevice,
   GameCaptureRecord,
   GameWindow,
+  HealthCheck,
+  MsiStatus,
+  DpcScan,
+  InterruptVerification,
   SessionDetail,
   SessionSummary,
   Settings,
@@ -51,9 +55,6 @@ export const cancelBenchmark = () => invoke<void>('cancel_benchmark');
 export const getCoreCandidates = () => invoke<import('./types').CoreTarget[]>('get_core_candidates');
 export const getQuickSchedule = (config: BenchmarkConfig) => invoke<import('./types').QuickSchedule>('get_quick_schedule', { config });
 export const applyGpuCore = (instanceId: string, coreId: number, sessionId: string | null) => invoke<void>('apply_gpu_core', { instanceId, coreId, sessionId });
-export const getMigrationStatus = () => invoke<import('./types').MigrationStatus>('get_migration_status');
-export const acknowledgeMigration = () => invoke<void>('acknowledge_migration');
-export const retryAutostartCleanup = () => invoke<void>('retry_autostart_cleanup');
 
 export const beginUpdate = () => invoke<void>('begin_update');
 export const endUpdate = () => invoke<void>('end_update');
@@ -65,3 +66,18 @@ export const startGameCapture = (pid: number, title: string, durationSecs: numbe
 export const cancelGameCapture = () => invoke<void>('cancel_game_capture');
 export const listGameCaptures = () => invoke<GameCaptureRecord[]>('list_game_captures');
 export const deleteGameCapture = (id: string) => invoke<void>('delete_game_capture', { id });
+
+// 系統環境健檢（唯讀）
+export const getSystemHealth = () => invoke<HealthCheck[]>('get_system_health');
+
+// GPU MSI 模式
+export const getMsiStatus = (instanceId: string) =>
+  invoke<MsiStatus>('get_msi_status', { instanceId });
+export const applyMsi = (instanceId: string) => invoke<void>('apply_msi', { instanceId });
+export const restoreMsi = (instanceId: string) => invoke<void>('restore_msi', { instanceId });
+
+// 中斷落點驗證與 DPC 掃描
+export const verifyInterruptAffinity = (instanceId: string, expectedLps: number[]) =>
+  invoke<InterruptVerification>('verify_interrupt_affinity', { instanceId, expectedLps });
+export const scanDpcOffenders = (topN?: number) =>
+  invoke<DpcScan>('scan_dpc_offenders', { topN: topN ?? null });

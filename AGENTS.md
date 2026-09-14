@@ -1,7 +1,7 @@
 <!-- gitnexus:start -->
 # GitNexus — Code Intelligence
 
-This project is indexed by GitNexus as **FrameAnchor** (2838 symbols, 8187 relationships, 250 execution flows). Use the GitNexus MCP tools to understand code, assess impact, and navigate safely.
+This project is indexed by GitNexus as **PaceDock** (3046 symbols, 8768 relationships, 269 execution flows). Use the GitNexus MCP tools to understand code, assess impact, and navigate safely.
 
 > Index stale? Run `node .gitnexus/run.cjs analyze` from the project root — it auto-selects an available runner. No `.gitnexus/run.cjs` yet? `npx gitnexus analyze` (npm 11 crash → `npm i -g gitnexus`; #1939).
 
@@ -25,10 +25,10 @@ This project is indexed by GitNexus as **FrameAnchor** (2838 symbols, 8187 relat
 
 | Resource | Use for |
 |----------|---------|
-| `gitnexus://repo/FrameAnchor/context` | Codebase overview, check index freshness |
-| `gitnexus://repo/FrameAnchor/clusters` | All functional areas |
-| `gitnexus://repo/FrameAnchor/processes` | All execution flows |
-| `gitnexus://repo/FrameAnchor/process/{name}` | Step-by-step execution trace |
+| `gitnexus://repo/PaceDock/context` | Codebase overview, check index freshness |
+| `gitnexus://repo/PaceDock/clusters` | All functional areas |
+| `gitnexus://repo/PaceDock/processes` | All execution flows |
+| `gitnexus://repo/PaceDock/process/{name}` | Step-by-step execution trace |
 
 ## CLI
 

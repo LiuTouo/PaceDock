@@ -95,6 +95,8 @@ async function boot(page, options) {
     }, true);
   });
   await page.goto('/');
+  await expect(page).toHaveTitle('PaceDock');
+  if (!options.compact) await expect(page.locator('.brand-text')).toHaveText('PaceDock');
   await expect(page.locator('html')).toHaveAttribute('data-theme', options.theme.toLowerCase());
   await expect(page.locator('.gpu-page')).toBeVisible();
   await page.evaluate(() => document.fonts.ready);
@@ -139,9 +141,10 @@ for (const theme of ['Dark', 'Light']) {
       await audit(page);
       await page.screenshot({ path: testInfo.outputPath('timer.png'), fullPage: true });
       await page.evaluate(() => { window.__uiMock.blocked.push('get_timer_status'); });
-      await page.locator('.page button.primary').first().click();
-      await expect(page.locator('.page button.primary').first()).toBeDisabled();
-      await readable(page.locator('.page button.primary').first());
+      const detectButton = page.getByRole('button', { name: language === 'zh-TW' ? '手動偵測' : 'Detect now', exact: true });
+      await detectButton.click();
+      await expect(detectButton).toBeDisabled();
+      await readable(detectButton);
       await page.evaluate(() => window.__uiMock.release.get_timer_status());
 
       await page.locator('.nav-btn').nth(2).click();
@@ -168,6 +171,7 @@ for (const theme of ['Dark', 'Light']) {
       await audit(page);
       await page.evaluate(() => window.__uiMock.emit('show-about', null));
       await expect(page.getByRole('dialog')).toBeVisible();
+      await expect(page.getByRole('dialog').locator('.brand-text')).toHaveText('PaceDock');
       await audit(page, page.getByRole('dialog'));
       expect(errors).toEqual([]);
     });

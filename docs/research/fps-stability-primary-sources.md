@@ -1,4 +1,4 @@
-# FrameAnchor 核心方法與 FPS 穩定度：一手來源核對
+# PaceDock 核心方法與 FPS 穩定度：一手來源核對
 
 查核日期：2026-09-09。範圍：Windows 排程 API、GPU interrupt affinity、PresentMon 2.5.1 指標，以及如何驗證實際遊戲效益。此文件是原理與程式碼的交叉評估，沒有執行硬體效能實驗，不能作為提升百分比的證據。
 
@@ -21,7 +21,7 @@
 
 Intel 的遊戲開發指引將 critical-path 與背景執行緒區分，建議少量關鍵工作才提高優先序，並要求在目標硬體驗證 affinity 假設。整個遊戲行程套一組固定核心，沒有遊戲引擎內部每條執行緒的工作語意，因此不能直接套用該指引所描述的細粒度最佳化成果。[Intel：Optimizing Threading for Gaming Performance](https://www.intel.com/content/www/us/en/developer/articles/technical/optimizing-threading-for-gaming-performance.html)
 
-AMD 官方 chipset release notes 確認存在 `AMD 3D V-Cache Performance Optimizer Driver`。這只能證明平台已有相關軟體元件，不能證明 FrameAnchor 的手動 affinity 一定優於它。舊 AMD 社群安裝指引查核時已重新導向公告頁，未將搜尋摘要中的完整排程細節當成已驗證結論。[AMD：Chipset Driver 6.10.17.152 Release Notes](https://www.amd.com/en/resources/support-articles/release-notes/RN-RYZEN-CHIPSET-6-10-17-152.html)
+AMD 官方 chipset release notes 確認存在 `AMD 3D V-Cache Performance Optimizer Driver`。這只能證明平台已有相關軟體元件，不能證明 PaceDock 的手動 affinity 一定優於它。舊 AMD 社群安裝指引查核時已重新導向公告頁，未將搜尋摘要中的完整排程細節當成已驗證結論。[AMD：Chipset Driver 6.10.17.152 Release Notes](https://www.amd.com/en/resources/support-articles/release-notes/RN-RYZEN-CHIPSET-6-10-17-152.html)
 
 ## GPU interrupt affinity 的因果缺口
 

@@ -46,6 +46,7 @@ pub fn run(ctx: &mut RunContext) -> RunResult {
                 retest: vec![],
                 status: RankingStatus::Insufficient,
                 relative_gap_pct: None,
+                baseline: None,
             }),
             ..Default::default()
         },
@@ -69,6 +70,16 @@ pub fn run(ctx: &mut RunContext) -> RunResult {
     };
     detail.summary.capture_quality.effective_fps_cap = cap;
     detail.summary.capture_quality.circular_buffer_size = buffer;
+    // B0：原始策略基線 capture（任何候選之前；與 B1 前後夾擊，檢查環境漂移）。
+    // 失敗 = 該環境連預設策略都測不了，直接終止 session（與校準失敗同判定）。
+    let mut baselines: Vec<LpResult> = Vec::new();
+    {
+        let sched = detail.summary.quick.as_ref().unwrap().schedule.clone();
+        match run_baseline_round(ctx, &dir, BASELINE_ROUND_BASE, cap, buffer, &sched, &detail) {
+            Ok(r) => baselines.push(r),
+            Err(e) => return finish(ctx, detail, Some(e)),
+        }
+    }
     let mut csvs = RoundCsvs::new();
     let mut done = 0;
     let mut retest_order = vec![];
@@ -153,12 +164,67 @@ pub fn run(ctx: &mut RunContext) -> RunResult {
         }
     }
     ctx.config = original;
+    // B1：原始策略基線（retest 後；與 B0 夾擊，|B0−B1| 過大 → 對照標記不可靠）
+    {
+        let sched = detail.summary.quick.as_ref().unwrap().schedule.clone();
+        match run_baseline_round(
+            ctx,
+            &dir,
+            BASELINE_ROUND_BASE + 1,
+            cap,
+            buffer,
+            &sched,
+            &detail,
+        ) {
+            Ok(r) => baselines.push(r),
+            Err(e) => return finish(ctx, detail, Some(e)),
+        }
+    }
     let quick = detail.summary.quick.as_mut().unwrap();
     (quick.status, quick.relative_gap_pct) =
         physical::assess(&quick.screening, &quick.retest, targets.len());
+    // 原始策略對照：勝出者 vs 前後基線中位數。只改變推薦文案，不作為套用閘門。
+    if !quick.retest.is_empty() && !baselines.is_empty() {
+        let winner = quick.retest[0].metrics.clone();
+        quick.baseline = Some(physical::compare_baseline(&winner, &baselines));
+    }
     let error =
         (quick.status == RankingStatus::Insufficient).then(|| codes::BENCHMARK_CSV_INVALID.into());
     finish(ctx, detail, error)
+}
+
+/// 執行單次原始策略基線 capture 並算出完整指標（含顯示端）。
+/// 進入前後把 workload 秒數暫時切到 retest 條件，離開時還原。
+fn run_baseline_round(
+    ctx: &mut RunContext,
+    session_dir: &Path,
+    round: u32,
+    cap: u32,
+    buffer: u32,
+    sched: &physical::QuickSchedule,
+    detail: &SessionDetail,
+) -> Result<LpResult, String> {
+    let saved = (ctx.config.warm_up_secs, ctx.config.sample_secs);
+    let result = baseline_capture(
+        ctx,
+        round,
+        cap,
+        buffer,
+        sched.retest_warmup_secs,
+        sched.retest_sample_secs,
+        session_dir,
+        detail,
+    )
+    .and_then(|captured| {
+        let series = captured.read_full()?;
+        let mut r = compute_lp_result(0, &series.frames)
+            .map_err(|_| codes::BENCHMARK_CSV_INVALID.to_string())?;
+        attach_display_metrics(&mut r, &series.display);
+        Ok(r)
+    });
+    ctx.config.warm_up_secs = saved.0;
+    ctx.config.sample_secs = saved.1;
+    result
 }
 
 fn finish(ctx: &mut RunContext, mut detail: SessionDetail, error: Option<String>) -> RunResult {

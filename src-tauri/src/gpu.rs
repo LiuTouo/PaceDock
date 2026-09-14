@@ -194,6 +194,21 @@ pub trait GpuBackend: Send + Sync {
 
     /// BasicDisplay 服務 Start 值 != 4（未停用）
     fn basic_display_enabled(&self) -> Result<bool, GpuError>;
+
+    /// 讀取 GPU 的 `MSISupported` 值（absent → default snapshot）。
+    /// 帶預設實作：不支援的 backend（如測試 fake 未更新）回 Err。
+    fn read_msi_supported(&self, _instance_id: &str) -> Result<RegistryValueSnapshot, GpuError> {
+        Err(GpuError::Registry("MSI 讀取不支援此 backend".into()))
+    }
+
+    /// 寫入/刪除 `MSISupported`（absent snapshot → 刪值）。帶預設實作。
+    fn write_msi_supported(
+        &self,
+        _instance_id: &str,
+        _value: &RegistryValueSnapshot,
+    ) -> Result<(), GpuError> {
+        Err(GpuError::Registry("MSI 寫入不支援此 backend".into()))
+    }
 }
 
 // ── 重啟等待策略 ─────────────────────────────────────────────────────────
@@ -415,6 +430,61 @@ impl GpuBackend for RealGpuBackend {
             Ok(start.as_dword() != Some(4))
         }
     }
+
+    fn read_msi_supported(&self, instance_id: &str) -> Result<RegistryValueSnapshot, GpuError> {
+        unsafe {
+            let path = wide(&msi_policy_path(instance_id));
+            let mut hkey = HKEY::default();
+            let status = RegOpenKeyExW(
+                HKEY_LOCAL_MACHINE,
+                PCWSTR(path.as_ptr()),
+                None,
+                KEY_READ,
+                &mut hkey,
+            );
+            if status == ERROR_FILE_NOT_FOUND || status == ERROR_PATH_NOT_FOUND {
+                // 金鑰不存在 → 驅動未設定 MSI 屬性（present=false）
+                return Ok(RegistryValueSnapshot::default());
+            }
+            if status != ERROR_SUCCESS {
+                return Err(GpuError::Registry(format!(
+                    "RegOpenKeyExW(MSI): {status:?}"
+                )));
+            }
+            let key = OwnedRegistryKey(hkey);
+            read_value(key.0, MSI_SUPPORTED)
+        }
+    }
+
+    fn write_msi_supported(
+        &self,
+        instance_id: &str,
+        value: &RegistryValueSnapshot,
+    ) -> Result<(), GpuError> {
+        unsafe {
+            let path = wide(&msi_policy_path(instance_id));
+            let mut hkey = HKEY::default();
+            let mut disposition: REG_CREATE_KEY_DISPOSITION = REG_OPENED_EXISTING_KEY;
+            let status = RegCreateKeyExW(
+                HKEY_LOCAL_MACHINE,
+                PCWSTR(path.as_ptr()),
+                None,
+                PCWSTR::null(),
+                REG_OPTION_NON_VOLATILE,
+                KEY_READ | KEY_SET_VALUE | KEY_CREATE_SUB_KEY,
+                None,
+                &mut hkey,
+                Some(&mut disposition),
+            );
+            if status != ERROR_SUCCESS {
+                return Err(GpuError::Registry(format!(
+                    "RegCreateKeyExW(MSI): {status:?}"
+                )));
+            }
+            let key = OwnedRegistryKey(hkey);
+            write_value(key.0, MSI_SUPPORTED, value)
+        }
+    }
 }
 
 /// 組出 Affinity Policy 金鑰路徑。刻意用 CurrentControlSet。
@@ -423,6 +493,17 @@ fn affinity_policy_path(instance_id: &str) -> String {
         r"SYSTEM\CurrentControlSet\Enum\{instance_id}\Device Parameters\Interrupt Management\Affinity Policy"
     )
 }
+
+/// 組出 MSI（Message Signaled Interrupt）屬性金鑰路徑。
+/// `MSISupported`（REG_DWORD）= 1 表示 GPU 以 MSI 模式發中斷（低延遲）。
+pub fn msi_policy_path(instance_id: &str) -> String {
+    format!(
+        r"SYSTEM\CurrentControlSet\Enum\{instance_id}\Device Parameters\Interrupt Management\MessageSignaledInterruptProperties"
+    )
+}
+
+/// 讀取 `MSISupported` 值的常數名
+pub const MSI_SUPPORTED: &str = "MSISupported";
 
 fn wide(s: &str) -> Vec<u16> {
     s.encode_utf16().chain(std::iter::once(0)).collect()
@@ -673,6 +754,8 @@ pub mod fake {
         /// 已發生的 read 次數（配合 fail_read_at / mismatch_read_at）
         read_count: AtomicU32,
         policies: Mutex<HashMap<String, AffinityPolicy>>,
+        /// MSI（MSISupported）模擬狀態：instance → snapshot；缺項 = absent
+        msi: Mutex<HashMap<String, RegistryValueSnapshot>>,
         restart_count: AtomicU32,
         disable_attempts: AtomicU32,
         enable_attempts: AtomicU32,
@@ -691,6 +774,7 @@ pub mod fake {
                 mismatch_read_at: AtomicU32::new(0),
                 read_count: AtomicU32::new(0),
                 policies: Mutex::new(HashMap::new()),
+                msi: Mutex::new(HashMap::new()),
                 restart_count: AtomicU32::new(0),
                 disable_attempts: AtomicU32::new(0),
                 enable_attempts: AtomicU32::new(0),
@@ -739,11 +823,56 @@ pub mod fake {
                     ..Default::default()
                 })
         }
+
+        /// 預置 MSI 狀態（模擬驅動既有 MSISupported 值）
+        pub fn set_msi(&self, instance_id: &str, value: Option<u32>) {
+            let mut msi = self.msi.lock().unwrap();
+            match value {
+                Some(v) => {
+                    msi.insert(instance_id.to_string(), RegistryValueSnapshot::dword(v));
+                }
+                None => {
+                    msi.remove(instance_id);
+                }
+            }
+        }
+
+        pub fn msi_value(&self, instance_id: &str) -> Option<u32> {
+            self.msi
+                .lock()
+                .unwrap()
+                .get(instance_id)
+                .and_then(|s| s.as_dword())
+        }
     }
 
     impl GpuBackend for FakeBackend {
         fn enumerate_present_adapters(&self) -> Result<Vec<GpuDevice>, GpuError> {
             Ok(self.devices.clone())
+        }
+
+        fn read_msi_supported(&self, instance_id: &str) -> Result<RegistryValueSnapshot, GpuError> {
+            Ok(self
+                .msi
+                .lock()
+                .unwrap()
+                .get(instance_id)
+                .cloned()
+                .unwrap_or_default())
+        }
+
+        fn write_msi_supported(
+            &self,
+            instance_id: &str,
+            value: &RegistryValueSnapshot,
+        ) -> Result<(), GpuError> {
+            let mut msi = self.msi.lock().unwrap();
+            if value.present {
+                msi.insert(instance_id.to_string(), value.clone());
+            } else {
+                msi.remove(instance_id);
+            }
+            Ok(())
         }
 
         fn read_affinity_policy(&self, instance_id: &str) -> Result<AffinityPolicy, GpuError> {

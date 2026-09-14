@@ -137,11 +137,24 @@ impl BenchmarkManager {
             self.backend.as_ref(),
             self.sleeper.as_ref(),
             instance,
-            bytes,
+            bytes.clone(),
             journal,
             restore,
         );
         self.flag_recovery_if_needed(&result);
+        if result.is_ok() {
+            // 記住套用內容供漂移偵測；記錄寫入失敗只降級（不擋套用）。
+            let record = AppliedPolicyRecord {
+                instance_id: instance.to_string(),
+                core_id,
+                lp_indices: target.lp_indices.iter().map(|&l| l as u16).collect(),
+                override_bytes: bytes,
+                applied_at: chrono::Local::now().to_rfc3339(),
+            };
+            if let Err(e) = write_applied_record(&applied_record_path(), &record) {
+                log::warn!("套用記錄寫入失敗（漂移偵測將無資料）: {e}");
+            }
+        }
         result.map_err(|e| e.code)
     }
 }

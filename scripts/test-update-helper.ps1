@@ -1,4 +1,4 @@
-# FrameAnchor portable update helper - isolated behavioral tests
+# PaceDock portable update helper - isolated behavioral tests
 # Usage: powershell -ExecutionPolicy Bypass -File scripts\test-update-helper.ps1
 # Scenarios: A (success), B (post-backup failure), C (log truncation)
 
@@ -12,7 +12,7 @@ Import-Module Microsoft.PowerShell.Utility -ErrorAction SilentlyContinue
 $TestRoot = Join-Path $env:TEMP "fa_helper_test_$(Get-Date -Format 'yyyyMMdd_HHmmss')"
 $Results = @()
 $utf8Bom = [byte[]]@(0xEF, 0xBB, 0xBF)
-$markerName = ".frameanchor-portable"
+$markerName = ".pacedock-portable"
 
 function Assert-Condition {
     param([string]$Test, [bool]$Condition, [string]$Detail)
@@ -62,7 +62,7 @@ function Build-Script {
         [int]$TargetPid, [string]$NewResources, [string]$FailAfterSwap
     )
     return @"
-# FrameAnchor portable update helper (mirrors src-tauri/src/update.rs)
+# PaceDock portable update helper (mirrors src-tauri/src/update.rs)
 param(
     [int]`$TargetPid = $TargetPid,
     [string]`$FailAfterSwap
@@ -89,7 +89,7 @@ Write-Log "helper started, target PID=`$TargetPid"
 
 Write-Log "old=`$OldExe, new=`$NewExe, marker=`$Marker"
 
-# Wait for FrameAnchor to exit (with timeout)
+# Wait for PaceDock to exit (with timeout)
 `$timeout = Get-Date
 while (`$true) {
     `$proc = Get-Process -Id `$TargetPid -ErrorAction SilentlyContinue
@@ -204,8 +204,8 @@ New-Item -ItemType Directory -Path $dirA -Force | Out-Null
 New-Item -ItemType Directory -Path $tmpA -Force | Out-Null
 
 # Production layout: old exe at install dir, new exe + marker in temp
-$oldA = Join-Path $dirA "FrameAnchor.exe"
-$newA = Join-Path $tmpA "FrameAnchor_new.exe"
+$oldA = Join-Path $dirA "PaceDock.exe"
+$newA = Join-Path $tmpA "PaceDock_new.exe"
 $markerA = Join-Path $tmpA $markerName
 $logA = Join-Path $tmpA "update.log"
 
@@ -262,8 +262,8 @@ $tmpB = Join-Path $dirB "temp"
 New-Item -ItemType Directory -Path $dirB -Force | Out-Null
 New-Item -ItemType Directory -Path $tmpB -Force | Out-Null
 
-$oldB = Join-Path $dirB "FrameAnchor.exe"
-$newB = Join-Path $tmpB "FrameAnchor_new.exe"
+$oldB = Join-Path $dirB "PaceDock.exe"
+$newB = Join-Path $tmpB "PaceDock_new.exe"
 $markerB = Join-Path $tmpB $markerName
 $logB = Join-Path $tmpB "update.log"
 
@@ -316,8 +316,8 @@ $tmpC = Join-Path $dirC "temp"
 New-Item -ItemType Directory -Path $dirC -Force | Out-Null
 New-Item -ItemType Directory -Path $tmpC -Force | Out-Null
 
-$oldC = Join-Path $dirC "FrameAnchor.exe"
-$newC = Join-Path $tmpC "FrameAnchor_new.exe"
+$oldC = Join-Path $dirC "PaceDock.exe"
+$newC = Join-Path $tmpC "PaceDock_new.exe"
 $markerC = Join-Path $tmpC $markerName
 $logC = Join-Path $tmpC "update.log"
 
@@ -358,8 +358,8 @@ $tmpD = Join-Path $dirD "temp"
 New-Item -ItemType Directory -Path $dirD -Force | Out-Null
 New-Item -ItemType Directory -Path $tmpD -Force | Out-Null
 
-$oldD = Join-Path $dirD "FrameAnchor.exe"
-$newD = Join-Path $tmpD "FrameAnchor_new.exe"
+$oldD = Join-Path $dirD "PaceDock.exe"
+$newD = Join-Path $tmpD "PaceDock_new.exe"
 $markerD = Join-Path $tmpD $markerName
 $logD = Join-Path $tmpD "update.log"
 $failD = Join-Path $tmpD "fail_after_swap.marker"
@@ -415,8 +415,8 @@ $tmpE = Join-Path $dirE "temp"
 New-Item -ItemType Directory -Path $dirE -Force | Out-Null
 New-Item -ItemType Directory -Path $tmpE -Force | Out-Null
 
-$oldE = Join-Path $dirE "FrameAnchor.exe"
-$newE = Join-Path $tmpE "FrameAnchor_new.exe"
+$oldE = Join-Path $dirE "PaceDock.exe"
+$newE = Join-Path $tmpE "PaceDock_new.exe"
 $markerE = Join-Path $tmpE $markerName
 $logE = Join-Path $tmpE "update.log"
 $failE = Join-Path $tmpE "fail_after_swap.marker"

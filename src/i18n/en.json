@@ -10,7 +10,7 @@
   },
   "settings": {
     "general": "General",
-    "autostart": "Launch FrameAnchor at startup",
+    "autostart": "Launch PaceDock at startup",
     "startMinimized": "Start minimized to system tray",
     "closeToTray": "Minimize to tray when closing the window (instead of quitting)",
     "language": "Language",
@@ -24,7 +24,7 @@
     "showAdvanced": "Show advanced priorities (I/O / Memory) in the rule editor",
     "highPrecisionTimer": "High-precision timer",
     "highPrecisionTimerEnable": "Request 0.5 ms timer resolution continuously",
-    "highPrecisionTimerHint": "Requests 0.5 ms timer resolution via ntdll. Note: since Windows 10 2004, the request is per-process — only FrameAnchor's own timers are guaranteed; whether the global tick is raised is decided by the system. Global effect requires the registry value GlobalTimerResolutionRequests=1 (this app never writes it).",
+    "highPrecisionTimerHint": "Requests 0.5 ms timer resolution via ntdll. Note: since Windows 10 2004, the request is per-process — only PaceDock's own timers are guaranteed; whether the global tick is raised is decided by the system. Global effect requires the registry value GlobalTimerResolutionRequests=1 (this app never writes it).",
     "timerCurrent": "Current effective resolution: {value} ms",
     "updateSection": "Update & Version",
     "data": "Data",
@@ -41,39 +41,39 @@
     "updateError": "Update check failed",
     "updateErrorDetail": "Error: {error}",
     "updateConfirmTitle": "Confirm update",
-    "updateConfirmBody": "FrameAnchor {version} will be installed. Current version: {current}. Continue?",
+    "updateConfirmBody": "PaceDock {version} will be installed. Current version: {current}. Continue?",
     "saveFailed": "Failed to save settings: {error}",
     "dataFolder": "Open data folder"
   },
   "update": {
-    "bannerText": "FrameAnchor {version} is available (currently {current}).",
+    "bannerText": "PaceDock {version} is available (currently {current}).",
     "bannerInstall": "Install",
     "bannerDismiss": "Dismiss"
   },
   "about": {
-    "title": "About FrameAnchor",
+    "title": "About PaceDock",
     "close": "Close"
   },
   "timer": {
     "statusTitle": "Timer status",
     "detect": "Detect now",
     "detectHint": "Reads the currently effective system-wide timer resolution (the same three values as Clockres). Not refreshed automatically.",
-    "stateOn": "Request active — FrameAnchor holds a 0.5 ms request.",
+    "stateOn": "Request active — PaceDock holds a 0.5 ms request.",
     "stateOff": "No standing request held.",
     "range": "Supported range: finest {min} ms – coarsest {max} ms (same values as Clockres)",
-    "globalNote": "This reflects FrameAnchor only. To give the whole system (including games) 0.5 ms, enable Global mode below.",
+    "globalNote": "This reflects PaceDock only. To give the whole system (including games) 0.5 ms, enable Global mode below.",
     "globalTitle": "Global mode (registry)",
-    "globalHint": "Writes GlobalTimerResolutionRequests=1, restoring pre-Win10-2004 global semantics: FrameAnchor's 0.5 ms request lifts the whole system tick (games included). The value is only a policy gate — the tick falls back automatically when this app closes; delete the value to fully revert.",
+    "globalHint": "Writes GlobalTimerResolutionRequests=1, restoring pre-Win10-2004 global semantics: PaceDock's 0.5 ms request lifts the whole system tick (games included). The value is only a policy gate — the tick falls back automatically when this app closes; delete the value to fully revert.",
     "globalStatusOn": "GlobalTimerResolutionRequests = 1 (set)",
     "globalStatusOff": "Not set (system default per-process semantics)",
     "globalEnable": "Enable global semantics",
     "globalReboot": "Written — takes effect after a reboot.",
     "exemptTitle": "Game throttle exemption",
-    "exemptHint": "Windows 11 throttles backgrounded/occluded processes' timer resolution back to 15.6 ms. Games on the list are exempt: their 0.5 ms survives alt-tab or occlusion. The list persists — exemptions are re-applied automatically when a game restarts (new PID) and after FrameAnchor restarts; FrameAnchor reverts all exemptions on exit.",
+    "exemptHint": "Windows 11 throttles backgrounded/occluded processes' timer resolution back to 15.6 ms. Games on the list are exempt: their 0.5 ms survives alt-tab or occlusion. The list persists — exemptions are re-applied automatically when a game restarts (new PID) and after PaceDock restarts; PaceDock reverts all exemptions on exit.",
     "exemptPick": "Select a game window",
     "exemptAdd": "Add exemption",
     "exemptRemove": "Remove",
-    "exemptNone": "The list is empty. Add a game and FrameAnchor will lift timer throttling whenever it runs.",
+    "exemptNone": "The list is empty. Add a game and PaceDock will lift timer throttling whenever it runs.",
     "exemptNotRunning": "not running",
     "exemptNote": "The exemption only prevents throttling — it does not grant 0.5 ms by itself. The game must request its own resolution, or Global mode must be on."
   },
@@ -105,7 +105,7 @@
     "BENCHMARK_SESSION_NOT_COMPLETED": "Benchmark session is not completed yet",
     "BENCHMARK_RELIABILITY_NOT_PASSED": "Benchmark result is not reliable enough to apply — run with at least 3 rounds",
     "BENCHMARK_SESSION_INCOMPATIBLE": "Benchmark result does not match this CPU or GPU",
-    "BENCHMARK_RECOVERY_REQUIRED": "A previous GPU change was not fully restored. Restart FrameAnchor or restore manually before continuing",
+    "BENCHMARK_RECOVERY_REQUIRED": "A previous GPU change was not fully restored. Restart PaceDock or restore manually before continuing",
     "BENCHMARK_NOT_IMPLEMENTED": "Benchmark runner is not implemented yet",
     "BENCHMARK_ALREADY_RUNNING": "A benchmark is already running",
     "BENCHMARK_NOT_ACTIVE": "No benchmark is running",
@@ -124,7 +124,7 @@
     "BENCHMARK_CAPTURE_ETW_LOST": "PresentMon lost too many ETW events — capture load is too high. Close overlays, GPU monitoring, or recording tools, then retry",
     "BENCHMARK_CAPTURE_OVERFLOW": "PresentMon overflowed its present-event buffer even after retry — lower the workload FPS cap or close other GPU tools, then retry",
     "BENCHMARK_ENV_UNSTABLE": "The system was not stable enough to benchmark (power, battery saver, CPU load, or time drift). Plug in to AC, disable battery saver, close background apps, and retry",
-    "BENCHMARK_WINDOW_SPACE_INSUFFICIENT": "Not enough room on this monitor to place the benchmark window next to FrameAnchor. Use a smaller benchmark resolution or a monitor with more work area",
+    "BENCHMARK_WINDOW_SPACE_INSUFFICIENT": "Not enough room on this monitor to place the benchmark window next to PaceDock. Use a smaller benchmark resolution or a monitor with more work area",
     "BENCHMARK_WINDOW_INTEGRITY": "The benchmark window lost foreground, position, or visibility (minimized / covered / moved). Close overlays and keep the window focused, then retry",
     "BENCHMARK_NOT_EQUIVALENT": "This benchmark result is not an equivalent pair — it cannot be safety-validated for equivalent apply",
     "BENCHMARK_EQUIVALENT_LP_INVALID": "The selected core is not one of the equivalent candidates",
@@ -137,7 +137,8 @@
     "CAPTURE_GAME_NOT_FOUND": "The selected game window has closed or no longer exists",
     "CAPTURE_ALREADY_RUNNING": "A measurement or benchmark is already running",
     "unknown": "Unknown error",
-    "anticheatNote": "This game is anti-cheat protected. Keep FrameAnchor running before launching the game; if it's already running, restart the game."
+    "anticheatNote": "This game is anti-cheat protected. Keep PaceDock running before launching the game; if it's already running, restart the game.",
+    "GPU_MSI_FAILED": "MSI operation failed."
   },
   "quick": {
     "title": "GPU tuning",
@@ -193,10 +194,7 @@
     "done": "Operation completed.",
     "recovery": "A GPU recovery journal is still pending. Tests and application are blocked. Restart the app to retry recovery.",
     "exitBlocked": "A GPU operation is in progress. Cancel the test and wait for cleanup, application or restoration to finish before closing the window.",
-    "migration": "Legacy game CPU rules are disabled and their data is preserved. Restart any running game modified by an older version. This version will not guess or overwrite its original settings.",
-    "cleanupFailed": "Legacy startup task cleanup failed",
     "retry": "Retry cleanup",
-    "dismiss": "Dismiss",
     "phase": {
       "Calibration": "Calibration",
       "Screening": "Screening",
@@ -231,6 +229,20 @@
       "finalizing": "Finalizing",
       "cancelling": "Cancelling",
       "calibrating": "Calibrating"
+    },
+    "colDisplayP99": "P→D p99 (ms)",
+    "colDropped": "Dropped %",
+    "msiConfirm": "Enable Message Signaled Interrupts (MSISupported=1)? The display device will be restarted.",
+    "msiRestoreConfirm": "Restore the previous MSI setting? The display device will be restarted.",
+    "msiEnable": "Enable MSI",
+    "msiRestore": "Restore MSI",
+    "baseline": {
+      "BeatsDefault": "Beats the system default policy",
+      "WithinThreshold": "No meaningful improvement over the default policy",
+      "Worse": "The default policy performed better",
+      "Inconclusive": "Baseline drift detected; comparison unreliable",
+      "hint": "Measured against the OS default policy under identical conditions (captured before and after the candidate runs). This does not affect apply eligibility.",
+      "none": "No default-policy comparison recorded for this session."
     }
   },
   "measure": {
@@ -247,6 +259,8 @@
     "noGames": "No measurable game window found",
     "noCaptures": "No measurements yet",
     "delete": "Delete selected record",
-    "deleteConfirm": "Permanently delete this measurement and its raw data?"
+    "deleteConfirm": "Permanently delete this measurement and its raw data?",
+    "rowDisplayP99": "P→D p99 (ms)",
+    "rowDropped": "Dropped %"
   }
 }

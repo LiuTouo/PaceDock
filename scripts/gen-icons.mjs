@@ -1,4 +1,4 @@
-// 從 canonical source PNG 產生 FrameAnchor 圖示：icon.png (256) / 128x128.png / 32x32.png / icon.ico
+// 從 canonical source PNG 產生 PaceDock 圖示：icon.png (256) / 128x128.png / 32x32.png / icon.ico
 // 無第三方依賴，純 JS PNG decoder + bilinear resize + PNG encoder + ICO 容器。
 import { deflateSync, inflateSync } from 'node:zlib';
 import { readFileSync, writeFileSync, mkdirSync } from 'node:fs';
@@ -7,7 +7,7 @@ import { fileURLToPath } from 'node:url';
 
 const REPO = join(dirname(fileURLToPath(import.meta.url)), '..');
 const outDir = join(REPO, 'src-tauri', 'icons');
-const sourcePath = join(outDir, 'FrameAnchor-icon.png');
+const sourcePath = join(outDir, 'PaceDock-icon.png');
 mkdirSync(outDir, { recursive: true });
 
 // ---- CRC32 ----

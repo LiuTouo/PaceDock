@@ -47,7 +47,7 @@ pub fn kill_orphan_webviews() {
     };
 
     let our_dir = format!(
-        "{}\\com.frameanchor.app\\EBWebView",
+        "{}\\com.pacedock.app\\EBWebView",
         std::env::var("LOCALAPPDATA").unwrap_or_default()
     );
     let self_pid = std::process::id();
@@ -55,7 +55,7 @@ pub fn kill_orphan_webviews() {
     let mut webviews: Vec<u32> = Vec::new();
     let mut other_host_alive = false;
     for (pid, name) in enumerate_processes() {
-        if name == "frameanchor.exe" && pid != self_pid {
+        if name == "pacedock.exe" && pid != self_pid {
             other_host_alive = true;
         } else if name == "msedgewebview2.exe" {
             webviews.push(pid);

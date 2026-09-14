@@ -2,7 +2,7 @@
 name = "d3d9-workload"
 version = "0.1.0"
 edition = "2021"
-description = "FrameAnchor GPU 基準測試的 Direct3D9 workload（黑/白交替、無 vsync、不設上限）"
+description = "PaceDock GPU 基準測試的 Direct3D9 workload（黑/白交替、無 vsync、不設上限）"
 
 [dependencies]
 windows = { version = "0.61", features = [

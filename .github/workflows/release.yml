@@ -129,7 +129,7 @@ jobs:
           TAURI_SIGNING_PRIVATE_KEY_PASSWORD: ${{ secrets.TAURI_SIGNING_PRIVATE_KEY_PASSWORD || '' }}
         with:
           tagName: ${{ github.ref_name }}
-          releaseName: "FrameAnchor ${{ github.ref_name }}"
+          releaseName: "PaceDock ${{ github.ref_name }}"
           releaseDraft: false
           prerelease: false
           generateReleaseNotes: true
@@ -145,8 +145,8 @@ jobs:
 
           $version = "$env:GITHUB_REF_NAME".Substring(1)
           $exeDir = "src-tauri/target/release"
-          $exeName = "FrameAnchor.exe"
-          $zipName = "FrameAnchor_$($version)_x64-portable.zip"
+          $exeName = "PaceDock.exe"
+          $zipName = "PaceDock_$($version)_x64-portable.zip"
           $stagingDir = "portable-staging"
 
           if (-not (Test-Path "$exeDir\$exeName")) {
@@ -158,7 +158,7 @@ jobs:
           New-Item -ItemType Directory -Force -Path $stagingDir | Out-Null
           Copy-Item "$exeDir\$exeName" "$stagingDir\" -Force
           # 可攜版標記檔：空檔案，表示此為可攜版
-          New-Item -ItemType File -Path "$stagingDir\.frameanchor-portable" -Force | Out-Null
+          New-Item -ItemType File -Path "$stagingDir\.pacedock-portable" -Force | Out-Null
 
           # 基準測試資源：可攜版必須內含（resource_dir() = exe 所在目錄 → resources\benchmark）
           $resourceDir = "$exeDir\resources\benchmark"
@@ -172,13 +172,13 @@ jobs:
           }
 
           # 打包 ZIP：明確指定輸入路徑（不依賴萬用字元包含 dotfile）
-          Compress-Archive -Path "$stagingDir\$exeName", "$stagingDir\.frameanchor-portable", "$stagingDir\resources" -DestinationPath $zipName -Force
+          Compress-Archive -Path "$stagingDir\$exeName", "$stagingDir\.pacedock-portable", "$stagingDir\resources" -DestinationPath $zipName -Force
 
           # 驗證 ZIP 內含 exe、標記檔與六個必要資源項目。
           # FullName 分隔符正規化為 /，逐一比對，缺任一項即失敗。
           $requiredEntries = @(
-            'FrameAnchor.exe',
-            '.frameanchor-portable',
+            'PaceDock.exe',
+            '.pacedock-portable',
             'resources/benchmark/PresentMon-2.5.1-x64.exe',
             'resources/benchmark/lava-triangle.exe',
             'resources/benchmark/d3d9-workload.exe',
@@ -271,12 +271,12 @@ jobs:
           $ErrorActionPreference = "Stop"
           $tag = "$env:GITHUB_REF_NAME"
           $version = $tag.Substring(1)
-          $expectedName = "FrameAnchor_$($version)_x64-setup.exe"
+          $expectedName = "PaceDock_$($version)_x64-setup.exe"
 
           # tauri-action 建置輸出在標準 Tauri bundle 路徑
           $bundleDir = "src-tauri\target\release\bundle\nsis"
           $installer = Get-ChildItem -Path $bundleDir -Filter "*.exe" -ErrorAction SilentlyContinue |
-              Where-Object { $_.Name -like "FrameAnchor*setup*" } |
+              Where-Object { $_.Name -like "PaceDock*setup*" } |
               Select-Object -First 1
 
           if (-not $installer) {

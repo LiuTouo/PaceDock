@@ -22,7 +22,9 @@ use crate::gpu::{
 use super::assets::{self, BenchmarkAssets};
 use super::env::{self, EnvironmentProbe};
 use super::metrics::{
-    compute_lp_result, merge_rounds, parse_presentmon_csv, parse_presentmon_csv_full,
+    attach_display_metrics, compute_lp_result, merge_display_rounds, merge_rounds,
+    parse_presentmon_csv, parse_presentmon_csv_full, parse_presentmon_series, DisplaySeries,
+    FullSeries,
 };
 use super::recovery::{self, RecoveryStage};
 use super::storage;
@@ -1037,6 +1039,61 @@ fn calibration_capture(
     }
 }
 
+/// 原始策略基線 capture 的 round 編號 namespace（與正式 round 隔離）
+pub const BASELINE_ROUND_BASE: u32 = 900;
+
+/// 執行單次「原始策略基線」capture：不套用任何 GPU policy，workload 在
+/// 既有（OS 預設或先前套用）策略下執行。形狀同 [`calibration_capture`]，
+/// 但 warmup/取樣秒數由呼叫端指定（與 retest 同條件）。
+#[allow(clippy::too_many_arguments)]
+fn baseline_capture(
+    ctx: &mut RunContext,
+    round: u32,
+    fps_cap: u32,
+    buffer: u32,
+    warmup_secs: u32,
+    sample_secs: u32,
+    session_dir: &Path,
+    detail: &SessionDetail,
+) -> Result<CapturedCsv, String> {
+    emit(ctx, detail, "calibrating", Some(round), None, 0, None, None);
+    if ctx.cancel.is_cancelled() {
+        return Err("cancelled".to_string());
+    }
+    let (wl_exe, wl_args) = workload_command(&ctx.assets, &ctx.config, fps_cap);
+    let wl_pid = match ctx.processes.spawn(&wl_exe, &wl_args) {
+        Ok(pid) => {
+            ctx.owned_processes.push(pid);
+            pid
+        }
+        Err(_) => return Err(codes::BENCHMARK_WORKLOAD_FAILED.to_string()),
+    };
+    let expected = prepare_workload_window(ctx, wl_pid)?;
+    warmup_with_integrity(
+        ctx,
+        wl_pid,
+        expected,
+        WORKLOAD_STARTUP_MS + (warmup_secs as u64) * 1000,
+    )?;
+    let csv = session_dir.join(format!("round-{round}-lp-0.csv"));
+    let result = run_capture(
+        ctx,
+        round,
+        0,
+        wl_pid,
+        &csv,
+        1,
+        fps_cap,
+        buffer,
+        sample_secs,
+        expected,
+    );
+    if ctx.cancel.is_cancelled() {
+        return Err("cancelled".to_string());
+    }
+    result
+}
+
 /// 某 round 所有 LP 的 frametime 中位數（漂移偵測用）。
 #[cfg(test)]
 fn round_median_frametime(round_csvs: &RoundCsvs, round: u32) -> Option<f64> {
@@ -1957,7 +2014,7 @@ fn run_capture(
     expected: Rect,
 ) -> Result<CapturedCsv, String> {
     let started_at = chrono::Local::now().to_rfc3339();
-    let pm_session_name = format!("FrameAnchor-{}-{round}-{lp}-{attempt}", ctx.session_id);
+    let pm_session_name = format!("PaceDock-{}-{round}-{lp}-{attempt}", ctx.session_id);
     // PresentMon 啟動前確認 workload 是否還活著（第二次 capture 無 CSV 的關鍵判據）
     let wl_alive_before_pm = ctx.processes.is_alive(wl_pid);
     // 1) stale 輸出清除：刪除失敗 = 可能留下既有 shaped CSV 被當本次 capture → fail closed
@@ -2463,6 +2520,7 @@ fn compute_lp_all_rounds(lp: u32, rounds: &HashMap<u32, CapturedCsv>) -> Result<
 /// 計算某 phase（round 編號 [start_round, end_round)）的逐 LP 聚合結果。
 /// 只納入該範圍內實際存在的 round；無資料的 LP 略過。供 SessionDetail 的
 /// screening/refinement/confirmation 分相結果（證據獨立保存）。
+/// 顯示端指標（present→display 延遲、display-change 間隔、丟幀）一併聚合。
 fn compute_phase_results(
     round_csvs: &RoundCsvs,
     start_round: u32,
@@ -2480,16 +2538,19 @@ fn compute_phase_results(
             .collect();
         round_nums.sort_unstable();
         let mut per_round: Vec<Vec<f64>> = Vec::new();
+        let mut per_round_display: Vec<DisplaySeries> = Vec::new();
         for round in round_nums {
-            if let Ok(frames) = rounds[&round].read() {
-                per_round.push(frames);
+            if let Ok(series) = rounds[&round].read_full() {
+                per_round.push(series.frames);
+                per_round_display.push(series.display);
             }
         }
         if per_round.is_empty() {
             continue;
         }
         let merged = merge_rounds(&per_round);
-        if let Ok(r) = compute_lp_result(lp, &merged) {
+        if let Ok(mut r) = compute_lp_result(lp, &merged) {
+            attach_display_metrics(&mut r, &merge_display_rounds(&per_round_display));
             out.push(r);
         }
     }
@@ -2524,6 +2585,27 @@ impl CapturedCsv {
 
     /// 下游讀取：重新讀檔並驗證 digest 與 capture 當下一致
     fn read(&self) -> Result<Vec<f64>, String> {
+        self.read_text().and_then(|text| {
+            parse_presentmon_csv(&text).map_err(|e| {
+                log::warn!("CSV 解析失敗 {}: {e}", self.path.display());
+                codes::BENCHMARK_CSV_INVALID.to_string()
+            })
+        })
+    }
+
+    /// 下游讀取（完整序列）：驗 digest 後回傳 frametime + 顯示端序列
+    /// （present→display 延遲、display-change 間隔、丟幀）。
+    fn read_full(&self) -> Result<FullSeries, String> {
+        self.read_text().and_then(|text| {
+            parse_presentmon_series(&text).map_err(|e| {
+                log::warn!("CSV 解析失敗 {}: {e}", self.path.display());
+                codes::BENCHMARK_CSV_INVALID.to_string()
+            })
+        })
+    }
+
+    /// 重新讀檔並驗證 digest 與 capture 當下一致（共用檢查）。
+    fn read_text(&self) -> Result<String, String> {
         let text = std::fs::read_to_string(&self.path).map_err(|e| {
             log::warn!("CSV 讀取失敗 {}: {e}", self.path.display());
             codes::BENCHMARK_CSV_INVALID.to_string()
@@ -2535,10 +2617,7 @@ impl CapturedCsv {
             );
             return Err(codes::BENCHMARK_CSV_INVALID.to_string());
         }
-        parse_presentmon_csv(&text).map_err(|e| {
-            log::warn!("CSV 解析失敗 {}: {e}", self.path.display());
-            codes::BENCHMARK_CSV_INVALID.to_string()
-        })
+        Ok(text)
     }
 }
 
@@ -4327,7 +4406,7 @@ mod tests {
 
     fn temp_root(name: &str) -> std::path::PathBuf {
         let dir = std::env::temp_dir().join(format!(
-            "frameanchor_runner_{}_{}",
+            "pacedock_runner_{}_{}",
             std::process::id(),
             name
         ));
@@ -8477,8 +8556,8 @@ mod tests {
         assert_eq!(result.detail.results.len(), 2);
         assert_eq!(result.detail.confirmation_results.len(), 0);
         assert_eq!(result.detail.summary.best_lp, None);
-        assert_eq!(result.detail.summary.capture_quality.total_captures, 5);
-        assert_eq!(backend.restart_count(), 6); // 5 captures + restoration
+        assert_eq!(result.detail.summary.capture_quality.total_captures, 7); // 2 基線 + 5 候選
+        assert_eq!(backend.restart_count(), 6); // 5 候選 captures + restoration（基線不重啟）
         assert_eq!(q.screening_order, physical::shuffled(&[0, 1, 2], q.seed));
         let expected: Vec<_> = q
             .screening_order
@@ -8627,7 +8706,7 @@ mod tests {
                     result.detail.summary.quick.as_ref().unwrap().status,
                     RankingStatus::SingleCandidate
                 );
-                assert_eq!(result.detail.summary.capture_quality.total_captures, 2);
+                assert_eq!(result.detail.summary.capture_quality.total_captures, 4); // 2 基線 + 2 候選
             } else if mode == "cancel" {
                 assert_eq!(result.status, SessionStatus::Cancelled);
             } else {

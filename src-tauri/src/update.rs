@@ -1,10 +1,10 @@
 //! 自動更新：NSIS 透過 tauri-plugin-updater；可攜版自行實作。
 //!
-//! 可攜版偵測：exe 同層存在 `.frameanchor-portable` 標記檔。
+//! 可攜版偵測：exe 同層存在 `.pacedock-portable` 標記檔。
 //! 更新流程：
 //!   1. 以 GitHub Releases API 查詢最新非 prerelease 版本
 //!   2. 比對 semver；若目前版本 >= 最新版本則無動作
-//!   3. 從 assets 中精確選取可攜版 zip（FrameAnchor_X.Y.Z_x64-portable.zip）
+//!   3. 從 assets 中精確選取可攜版 zip（PaceDock_X.Y.Z_x64-portable.zip）
 //!   4. 下載並驗證對應的 .sha256 校驗檔（強制，失敗即拒絕）
 //!   5. 解壓縮出新 exe（檢查 ZIP 內含標記檔、單一 exe、無路徑遍歷）
 //!   6. 產生 PowerShell 輔助腳本（安全引用路徑、等待、備份、置換、重啟）
@@ -72,8 +72,8 @@ pub enum UpdateStatus {
 
 // ── GitHub API 常數 ──
 
-const GITHUB_API_RELEASES: &str = "https://api.github.com/repos/LiuTouo/FrameAnchor/releases";
-const USER_AGENT: &str = "FrameAnchor";
+const GITHUB_API_RELEASES: &str = "https://api.github.com/repos/LiuTouo/PaceDock/releases";
+const USER_AGENT: &str = "PaceDock";
 
 /// 可攜版 ZIP 大小上限 (100 MiB)
 const MAX_ZIP_SIZE: u64 = 100 * 1024 * 1024;
@@ -81,9 +81,9 @@ const MAX_ZIP_SIZE: u64 = 100 * 1024 * 1024;
 // ── 可攜版偵測 ──
 
 /// 可攜版標記檔名（放在 exe 同層目錄）
-pub const PORTABLE_MARKER: &str = ".frameanchor-portable";
+pub const PORTABLE_MARKER: &str = ".pacedock-portable";
 
-/// exe 同層目錄存在 `.frameanchor-portable` 時為可攜版
+/// exe 同層目錄存在 `.pacedock-portable` 時為可攜版
 pub fn is_portable() -> bool {
     current_exe_dir()
         .map(|d| d.join(PORTABLE_MARKER).exists())
@@ -158,11 +158,11 @@ pub struct PortableRelease {
 
 /// 建構可攜版 ZIP 資產名稱
 fn portable_zip_name(version: &Version) -> String {
-    format!("FrameAnchor_{}_x64-portable.zip", version)
+    format!("PaceDock_{}_x64-portable.zip", version)
 }
 
 /// 查詢 GitHub 最新非 prerelease、非 draft release，
-/// 精確選取 `FrameAnchor_X.Y.Z_x64-portable.zip` 與對應 `.sha256`。
+/// 精確選取 `PaceDock_X.Y.Z_x64-portable.zip` 與對應 `.sha256`。
 pub fn fetch_portable_release() -> Result<PortableRelease, String> {
     let response = http_client()
         .get(GITHUB_API_RELEASES)
@@ -548,7 +548,7 @@ pub const REQUIRED_RESOURCE_FILES: [&str; 6] = [
 ];
 
 /// 從 zip bytes 解壓縮出新 exe、標記檔與完整基準測試資源。
-/// 驗證：單一 FrameAnchor.exe、根層級標記檔、`resources/benchmark/` 內
+/// 驗證：單一 PaceDock.exe、根層級標記檔、`resources/benchmark/` 內
 /// 六個必要資源檔各出現一次。拒絕：路徑遍歷/反斜線、缺少任何必要資源、
 /// 重複資源、以目錄偽裝成資源檔、資源巢狀路徑或未預期的額外檔名。
 /// 回傳 (暫存 exe 路徑, 暫存標記檔路徑, 暫存資源目錄路徑)。
@@ -580,13 +580,13 @@ pub fn extract_portable_exe(zip_data: &[u8]) -> Result<(PathBuf, PathBuf, PathBu
         // 目錄項目：容器目錄（resources/、resources/benchmark/）直接略過；
         // 以 exe 或標記檔命名的目錄屬偽裝，拒絕。
         if entry.is_dir() {
-            if basename.eq_ignore_ascii_case("FrameAnchor.exe") || basename == PORTABLE_MARKER {
+            if basename.eq_ignore_ascii_case("PaceDock.exe") || basename == PORTABLE_MARKER {
                 return Err(format!("ZIP 項目 '{name}' 是目錄，不能用來偽裝檔案"));
             }
             continue;
         }
 
-        if basename.eq_ignore_ascii_case("FrameAnchor.exe") {
+        if basename.eq_ignore_ascii_case("PaceDock.exe") {
             exe_indices.push(i);
         } else if name == PORTABLE_MARKER {
             marker_found = true;
@@ -604,11 +604,11 @@ pub fn extract_portable_exe(zip_data: &[u8]) -> Result<(PathBuf, PathBuf, PathBu
     }
 
     if exe_indices.is_empty() {
-        return Err("ZIP 中找不到 FrameAnchor.exe".to_string());
+        return Err("ZIP 中找不到 PaceDock.exe".to_string());
     }
     if exe_indices.len() > 1 {
         return Err(format!(
-            "ZIP 中包含 {} 個 FrameAnchor.exe（預期 1 個）",
+            "ZIP 中包含 {} 個 PaceDock.exe（預期 1 個）",
             exe_indices.len()
         ));
     }
@@ -628,7 +628,7 @@ pub fn extract_portable_exe(zip_data: &[u8]) -> Result<(PathBuf, PathBuf, PathBu
 
     let tmp_dir = create_protected_staging_dir()?;
 
-    let tmp_exe = tmp_dir.join("FrameAnchor_new.exe");
+    let tmp_exe = tmp_dir.join("PaceDock_new.exe");
     let tmp_marker = tmp_dir.join(PORTABLE_MARKER);
     // 暫存資源目錄：helper 把整個 benchmark 目錄搬移到 exe 旁的 resources 下
     let tmp_resources = tmp_dir.join("resources").join("benchmark");
@@ -680,15 +680,10 @@ fn exclusive_create(path: &Path) -> std::io::Result<std::fs::File> {
 }
 
 /// 建立一次性暫存目錄:隨機名稱 + 僅 Administrators/SYSTEM 可寫的保護型 DACL。
-/// 舊版使用固定名稱 `%TEMP%\frameanchor_update`,同帳戶未提升程序可在 ZIP
-/// 驗證後置換 staged 執行檔或輔助腳本,再由提升權限端依路徑消費
-/// (CWE-367/377)。改為不可預測名稱 + 受保護 DACL,並清除舊版殘留目錄。
+/// 隨機名稱與受保護 DACL 防止驗證後被非提升權限程序置換內容。
 fn create_protected_staging_dir() -> Result<PathBuf, String> {
-    // 舊版固定名稱目錄盡力清除
-    let _ = std::fs::remove_dir_all(std::env::temp_dir().join("frameanchor_update"));
-
     let dir = std::env::temp_dir().join(format!(
-        "frameanchor_update_{}",
+        "pacedock_update_{}",
         uuid::Uuid::new_v4()
     ));
     // UUID 撞名殘留時移除重試一次;仍失敗即放棄(fail closed)
@@ -714,7 +709,7 @@ fn ps_single_quote(s: &str) -> String {
 
 /// 產生 PowerShell 輔助腳本內容。
 /// 使用單引號字串避免跳脫問題，處理 apostrophe/double-quote 安全。
-/// 腳本會將進度寫入 `%TEMP%\frameanchor_update\update.log` 以便診斷。
+/// 腳本會將進度寫入 `%TEMP%\pacedock_update_<uuid>\update.log` 以便診斷。
 /// 每次啟動會截斷舊日誌，避免無限制成長。
 fn portable_helper_script(
     old_exe: &str,
@@ -731,7 +726,7 @@ fn portable_helper_script(
     let log_q = ps_single_quote(log_path);
 
     format!(
-        r#"# FrameAnchor 可攜版更新輔助腳本
+        r#"# PaceDock 可攜版更新輔助腳本
 param(
     [int]$TargetPid = {pid}
 )
@@ -757,7 +752,7 @@ $OldDir = Split-Path $OldExe -Parent
 
 Write-Log "old=$OldExe, new=$NewExe, marker=$Marker"
 
-# 等待 FrameAnchor 完全結束（含 timeout）
+# 等待 PaceDock 完全結束（含 timeout）
 $timeout = Get-Date
 while ($true) {{
     $proc = Get-Process -Id $TargetPid -ErrorAction SilentlyContinue
@@ -971,8 +966,8 @@ mod tests {
     #[test]
     fn metadata_validation_rejects_version_mismatch() {
         let zip = b"zip-bytes";
-        let meta = br#"{"schema":1,"version":"1.2.3","asset":"FrameAnchor_1.2.3_x64-portable.zip","sha256":"X"}"#;
-        let err = validate_portable_metadata(meta, zip, "1.2.4", "FrameAnchor_1.2.3_x64-portable.zip")
+        let meta = br#"{"schema":1,"version":"1.2.3","asset":"PaceDock_1.2.3_x64-portable.zip","sha256":"X"}"#;
+        let err = validate_portable_metadata(meta, zip, "1.2.4", "PaceDock_1.2.3_x64-portable.zip")
             .unwrap_err();
         assert!(err.contains("版本"), "err={err}");
     }
@@ -981,7 +976,7 @@ mod tests {
     fn metadata_validation_rejects_asset_mismatch() {
         let zip = b"zip-bytes";
         let meta = br#"{"schema":1,"version":"1.2.4","asset":"evil.zip","sha256":"X"}"#;
-        let err = validate_portable_metadata(meta, zip, "1.2.4", "FrameAnchor_1.2.4_x64-portable.zip")
+        let err = validate_portable_metadata(meta, zip, "1.2.4", "PaceDock_1.2.4_x64-portable.zip")
             .unwrap_err();
         assert!(err.contains("資產名"), "err={err}");
     }
@@ -989,8 +984,8 @@ mod tests {
     #[test]
     fn metadata_validation_rejects_hash_mismatch() {
         let zip = b"zip-bytes";
-        let meta = br#"{"schema":1,"version":"1.2.4","asset":"FrameAnchor_1.2.4_x64-portable.zip","sha256":"0000000000000000000000000000000000000000000000000000000000000000"}"#;
-        let err = validate_portable_metadata(meta, zip, "1.2.4", "FrameAnchor_1.2.4_x64-portable.zip")
+        let meta = br#"{"schema":1,"version":"1.2.4","asset":"PaceDock_1.2.4_x64-portable.zip","sha256":"0000000000000000000000000000000000000000000000000000000000000000"}"#;
+        let err = validate_portable_metadata(meta, zip, "1.2.4", "PaceDock_1.2.4_x64-portable.zip")
             .unwrap_err();
         assert!(err.contains("sha256"), "err={err}");
     }
@@ -1000,13 +995,13 @@ mod tests {
         let zip = b"zip-bytes";
         let hash = compute_sha256(zip);
         let meta = format!(
-            r#"{{"schema":1,"version":"1.2.4","asset":"FrameAnchor_1.2.4_x64-portable.zip","sha256":"{hash}"}}"#
+            r#"{{"schema":1,"version":"1.2.4","asset":"PaceDock_1.2.4_x64-portable.zip","sha256":"{hash}"}}"#
         );
         validate_portable_metadata(
             meta.as_bytes(),
             zip,
             "1.2.4",
-            "FrameAnchor_1.2.4_x64-portable.zip",
+            "PaceDock_1.2.4_x64-portable.zip",
         )
         .expect("一致的 metadata 應通過");
     }
@@ -1019,20 +1014,17 @@ mod tests {
     }
 
     #[test]
-    fn protected_staging_dir_is_random_and_replaces_legacy() {
+    fn protected_staging_dir_is_random() {
         let dir = create_protected_staging_dir().expect("staging 目錄應建立成功");
         assert!(dir.is_dir());
         assert!(dir
             .file_name()
-            .map(|n| n.to_string_lossy().starts_with("frameanchor_update_"))
+            .map(|n| n.to_string_lossy().starts_with("pacedock_update_"))
             .unwrap_or(false));
 
         // 隨機名稱:兩次建立不會落在同一目錄
         let dir2 = create_protected_staging_dir().expect("第二個 staging 目錄應建立成功");
         assert_ne!(dir, dir2);
-
-        // 舊版固定名稱目錄應在建立流程中被清除
-        assert!(!std::env::temp_dir().join("frameanchor_update").exists());
 
         // 測試環境未必能刪除僅 Administrators 可寫的目錄,盡力清理
         let _ = std::fs::remove_dir_all(&dir);
@@ -1080,7 +1072,7 @@ mod tests {
     fn portable_zip_name_matches_pattern() {
         let v = Version::new(0, 2, 0);
         let name = portable_zip_name(&v);
-        assert_eq!(name, "FrameAnchor_0.2.0_x64-portable.zip");
+        assert_eq!(name, "PaceDock_0.2.0_x64-portable.zip");
     }
 
     #[test]
@@ -1096,7 +1088,7 @@ mod tests {
 
     #[test]
     fn compute_sha256_is_deterministic() {
-        let data = b"hello frameanchor";
+        let data = b"hello pacedock";
         let h1 = compute_sha256(data);
         let h2 = compute_sha256(data);
         assert_eq!(h1, h2);
@@ -1136,7 +1128,7 @@ mod tests {
     #[test]
     fn parse_checksum_accepts_standard_format() {
         // 標準格式 "<hex>  <filename>"
-        let body = "d14f5bcf9f29f5a2b3c4d5e6f7a8b9c0d1e2f3a4b5c6d7e8f9a0b1c2d3e4f5a6  FrameAnchor_0.2.0_x64-portable.zip\n";
+        let body = "d14f5bcf9f29f5a2b3c4d5e6f7a8b9c0d1e2f3a4b5c6d7e8f9a0b1c2d3e4f5a6  PaceDock_0.2.0_x64-portable.zip\n";
         let hex = body.split_whitespace().next().unwrap_or("").to_lowercase();
         assert_eq!(hex.len(), 64);
         assert!(hex.chars().all(|c| c.is_ascii_hexdigit()));
@@ -1167,9 +1159,9 @@ mod tests {
     #[test]
     fn helper_script_swaps_benchmark_resources() {
         let script = make_script(
-            r"C:\app\FrameAnchor.exe",
+            r"C:\app\PaceDock.exe",
             r"C:\tmp\new.exe",
-            r"C:\tmp\.frameanchor-portable",
+            r"C:\tmp\.pacedock-portable",
             12345,
         );
         assert!(
@@ -1204,9 +1196,9 @@ mod tests {
     #[test]
     fn helper_script_backs_up_and_restores_resources() {
         let script = make_script(
-            r"C:\app\FrameAnchor.exe",
+            r"C:\app\PaceDock.exe",
             r"C:\tmp\new.exe",
-            r"C:\tmp\.frameanchor-portable",
+            r"C:\tmp\.pacedock-portable",
             12345,
         );
         assert!(
@@ -1238,9 +1230,9 @@ mod tests {
     #[test]
     fn helper_script_catch_removes_partial_resources_when_old_absent() {
         let script = make_script(
-            r"C:\app\FrameAnchor.exe",
+            r"C:\app\PaceDock.exe",
             r"C:\tmp\new.exe",
-            r"C:\tmp\.frameanchor-portable",
+            r"C:\tmp\.pacedock-portable",
             12345,
         );
         assert!(
@@ -1265,9 +1257,9 @@ mod tests {
     #[test]
     fn helper_script_restarts_original_only_after_rollback() {
         let script = make_script(
-            r"C:\app\FrameAnchor.exe",
+            r"C:\app\PaceDock.exe",
             r"C:\tmp\new.exe",
-            r"C:\tmp\.frameanchor-portable",
+            r"C:\tmp\.pacedock-portable",
             1,
         );
         let restore_pos = script
@@ -1295,9 +1287,9 @@ mod tests {
     #[test]
     fn helper_script_parses_clean_with_powershell_parser() {
         let script = make_script(
-            r"C:\app\FrameAnchor.exe",
+            r"C:\app\PaceDock.exe",
             r"C:\tmp\new.exe",
-            r"C:\tmp\.frameanchor-portable",
+            r"C:\tmp\.pacedock-portable",
             12345,
         );
         let path = std::env::temp_dir().join("fa_helper_parse_check.ps1");
@@ -1327,13 +1319,13 @@ mod tests {
     #[test]
     fn helper_script_contains_pid_and_paths() {
         let script = make_script(
-            r"C:\app\FrameAnchor.exe",
+            r"C:\app\PaceDock.exe",
             r"C:\tmp\new.exe",
-            r"C:\tmp\.frameanchor-portable",
+            r"C:\tmp\.pacedock-portable",
             12345,
         );
         assert!(script.contains("12345"));
-        assert!(script.contains("FrameAnchor.exe"));
+        assert!(script.contains("PaceDock.exe"));
         assert!(script.contains("new.exe"));
     }
 
@@ -1342,7 +1334,7 @@ mod tests {
         let script = make_script(
             r"C:\app\fa.exe",
             r"C:\tmp\new.exe",
-            r"C:\tmp\.frameanchor-portable",
+            r"C:\tmp\.pacedock-portable",
             1,
         );
         assert!(script.contains(".bak"));
@@ -1359,7 +1351,7 @@ mod tests {
         let script = make_script(
             r"C:\app\fa.exe",
             r"C:\tmp\new.exe",
-            r"C:\tmp\.frameanchor-portable",
+            r"C:\tmp\.pacedock-portable",
             1,
         );
         assert!(script.contains("TotalSeconds"));
@@ -1370,7 +1362,7 @@ mod tests {
         let script = make_script(
             r"C:\app\fa.exe",
             r"C:\tmp\new.exe",
-            r"C:\tmp\.frameanchor-portable",
+            r"C:\tmp\.pacedock-portable",
             1,
         );
         assert!(
@@ -1388,7 +1380,7 @@ mod tests {
         let script = make_script(
             r"C:\app\fa.exe",
             r"C:\tmp\new.exe",
-            r"C:\tmp\.frameanchor-portable",
+            r"C:\tmp\.pacedock-portable",
             1,
         );
         // 關鍵階段應有對應 log
@@ -1416,7 +1408,7 @@ mod tests {
         let script = make_script(
             r"C:\app\fa.exe",
             r"C:\tmp\new.exe",
-            r"C:\tmp\.frameanchor-portable",
+            r"C:\tmp\.pacedock-portable",
             1,
         );
         // 每次啟動應截斷舊日誌
@@ -1431,7 +1423,7 @@ mod tests {
         let script = make_script(
             r"C:\app\fa.exe",
             r"C:\tmp\new.exe",
-            r"C:\tmp\.frameanchor-portable",
+            r"C:\tmp\.pacedock-portable",
             1,
         );
         // Copy-Item（備份）必須在 try { 和 } catch 之間（輸出為實際 PowerShell，非 Rust format 跳脫）
@@ -1453,7 +1445,7 @@ mod tests {
         let script = make_script(
             r"C:\app\fa.exe",
             r"C:\tmp\new.exe",
-            r"C:\tmp\.frameanchor-portable",
+            r"C:\tmp\.pacedock-portable",
             1,
         );
         // catch 內應有兩條分支：備份存在時還原，不存在時記錄原 exe 未動
@@ -1471,7 +1463,7 @@ mod tests {
         let script = make_script(
             r"C:\Users\John'OConnor\App\fa.exe",
             r"C:\tmp\new.exe",
-            r"C:\tmp\.frameanchor-portable",
+            r"C:\tmp\.pacedock-portable",
             1,
         );
         // 單引號字串內 '' 為跳脫
@@ -1483,7 +1475,7 @@ mod tests {
         let script = make_script(
             r"C:\app\fa.exe",
             r"C:\tmp\new.exe",
-            r"C:\tmp\.frameanchor-portable",
+            r"C:\tmp\.pacedock-portable",
             1,
         );
         // Write-Error 已由 Write-Log 取代，確保不會因 stderr 遺失診斷訊息
@@ -1560,9 +1552,9 @@ mod tests {
         {
             let mut w = zip::ZipWriter::new(&mut buf);
             let opts = SimpleFileOptions::default();
-            w.start_file("FrameAnchor.exe", opts).unwrap();
+            w.start_file("PaceDock.exe", opts).unwrap();
             w.write_all(b"MZ fake exe bytes").unwrap();
-            w.start_file(".frameanchor-portable", opts).unwrap();
+            w.start_file(".pacedock-portable", opts).unwrap();
             w.write_all(b"").unwrap();
             for r in resources {
                 w.start_file(format!("{RESOURCE_PREFIX}{r}"), opts).unwrap();
@@ -1666,9 +1658,9 @@ mod tests {
         {
             let mut w = zip::ZipWriter::new(&mut buf);
             let opts = SimpleFileOptions::default();
-            w.start_file("FrameAnchor.exe", opts).unwrap();
+            w.start_file("PaceDock.exe", opts).unwrap();
             w.write_all(b"MZ").unwrap();
-            w.start_file(".frameanchor-portable", opts).unwrap();
+            w.start_file(".pacedock-portable", opts).unwrap();
             w.write_all(b"").unwrap();
             // 目錄項目偽裝成必要資源 SHA256SUMS
             w.add_directory("resources/benchmark/SHA256SUMS/", opts)
@@ -1695,9 +1687,9 @@ mod tests {
         {
             let mut w = zip::ZipWriter::new(&mut buf);
             let opts = SimpleFileOptions::default();
-            w.start_file("FrameAnchor.exe", opts).unwrap();
+            w.start_file("PaceDock.exe", opts).unwrap();
             w.write_all(b"MZ").unwrap();
-            w.start_file(".frameanchor-portable", opts).unwrap();
+            w.start_file(".pacedock-portable", opts).unwrap();
             w.write_all(b"").unwrap();
             w.add_directory("resources/", opts).unwrap();
             w.add_directory("resources/benchmark/", opts).unwrap();
@@ -1742,18 +1734,18 @@ mod tests {
             w.start_file("resources/benchmark/SHA256SUMS", opts)
                 .unwrap();
             w.write_all(b"abc").unwrap();
-            w.start_file(".frameanchor-portable", opts).unwrap();
+            w.start_file(".pacedock-portable", opts).unwrap();
             w.write_all(b"").unwrap();
             w.finish().unwrap();
         }
         let result = extract_portable_exe(&buf.into_inner());
         assert!(result.is_err());
-        assert!(result.unwrap_err().contains("FrameAnchor.exe"));
+        assert!(result.unwrap_err().contains("PaceDock.exe"));
     }
 
     #[test]
     fn portable_marker_name_is_stable() {
-        assert_eq!(PORTABLE_MARKER, ".frameanchor-portable");
+        assert_eq!(PORTABLE_MARKER, ".pacedock-portable");
     }
 
     // ── 大小檢查 ──

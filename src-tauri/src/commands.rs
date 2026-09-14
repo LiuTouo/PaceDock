@@ -80,7 +80,7 @@ pub fn set_timer_global_enabled(enabled: bool) -> Result<(), String> {
 }
 
 /// 對程式（exe 檔名為鍵）開啟/關閉持久化 timer 節流豁免：寫入 config，
-/// 並立即對執行中同名行程施加/還原；遊戲重啟、FrameAnchor 重啟後自動重套。
+/// 並立即對執行中同名行程施加/還原；遊戲重啟、PaceDock 重啟後自動重套。
 #[tauri::command]
 pub fn set_timer_exempt(
     state: State<Arc<AppState>>,

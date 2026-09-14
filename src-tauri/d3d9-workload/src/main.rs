@@ -1,4 +1,4 @@
-//! FrameAnchor GPU 基準測試的 D3D9 workload。
+//! PaceDock GPU 基準測試的 D3D9 workload。
 //! 與內建 liblava Vulkan workload（lava-triangle.exe）同定位：
 //! 全螢幕、無 vsync、不設上限，黑/白交替 Clear+Present 的確定性負載。
 //! 被 runner 啟動後持續渲染，直到被終止。
@@ -80,7 +80,7 @@ fn wide(s: &str) -> Vec<u16> {
 fn main() -> ExitCode {
     let opts = parse_args();
     let title = wide(&format!(
-        "FrameAnchor D3D9 workload {}x{}",
+        "PaceDock D3D9 workload {}x{}",
         opts.width, opts.height
     ));
 

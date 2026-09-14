@@ -169,6 +169,12 @@ export interface LpResult {
   p01Percentile: number | null; // 0.1% percentile
   p001Percentile: number | null; // 0.01% percentile
   p0005Percentile: number | null; // 0.005% percentile
+  // 顯示端指標（舊 session/CSV 無顯示欄位 → null）
+  displayedAvgFps: number | null; // 1000 / mean(msBetweenDisplayChange)
+  displayedP1Low: number | null; // 顯示端 1% low（frame-count）
+  displayLatencyAvgMs: number | null; // present→顯示延遲平均（ms）
+  displayLatencyP99Ms: number | null; // present→顯示延遲 p99（ms）
+  droppedPct: number | null; // 丟幀佔比（%，Dropped=1 佔比）
   sampleCount: number;
   avgFrameTimeMs: number | null;
   completed: boolean;
@@ -322,6 +328,8 @@ export interface BenchmarkState {
   windowIntegrity?: WindowIntegrity; // workload 視窗完整性快照
   cancelStage?: string | null; // 取消專用階段（requested/stopping/restoring/finalizing）；無取消為 null
   cancelProgress?: number | null; // 取消專用百分比 0..100；無取消為 null
+  policyDrift?: 'Match' | 'Drifted' | 'None' | null; // 已套用政策 vs 目前 registry
+  appliedCore?: number | null; // 已套用核心（對應 policyDrift）
 }
 
 /** 單一註冊表值的精確快照（presence + 型別 + 原始位元組） */
@@ -338,6 +346,46 @@ export interface AffinityPolicy {
   assignmentSetOverride: RegistryValueSnapshot;
 }
 
+/** 系統環境健檢（唯讀探針結果） */
+export type HealthStatus = 'Ok' | 'Warn' | 'Info' | 'Unknown';
+export interface HealthCheck {
+  id: string;
+  status: HealthStatus;
+  detail: string; // 機器可讀原始值；建議文案由 UI 依 id+status 呈現
+}
+
+/** GPU MSI 模式狀態（value = MSISupported 原值；null = 未設定） */
+export interface MsiStatus {
+  instanceId: string;
+  value: number | null;
+  /** 還原記錄存在（此前由 PaceDock 啟用，可還原） */
+  restorable: boolean;
+}
+
+/** 套用後落點驗證：目標驅動 ISR+DPC 實測落在釘選 LP 的佔比 */
+export interface InterruptVerification {
+  verdict: 'passed' | 'failed' | 'inconclusive';
+  pinnedEvents: number;
+  totalEvents: number;
+  onPinnedPct: number;
+  eventsLost: number;
+  sampleSecs: number;
+}
+
+/** 全系統 DPC 大戶（按總耗時排序） */
+export interface DpcOffender {
+  driver: string;
+  count: number;
+  totalDurationMs: number;
+  maxDurationMs: number;
+}
+export interface DpcScan {
+  offenders: DpcOffender[];
+  eventsLost: number;
+  sampledAt: string;
+  sampleSecs: number;
+}
+
 export interface StorageInfo {
   totalBytes: number;
   sessionCount: number;
@@ -351,13 +399,22 @@ export interface QuickSchedule {
 }
 export interface CoreCapture { target: CoreTarget; metrics: LpResult; score: number }
 export type RankingStatus = 'Consistent' | 'Close' | 'Reversed' | 'SingleCandidate' | 'Insufficient';
+/** 勝出候選 vs 原始策略（OS 預設）的對照結論（只影響推薦文案） */
+export type BaselineVerdict = 'BeatsDefault' | 'WithinThreshold' | 'Worse' | 'Inconclusive';
+export interface BaselineCompare {
+  verdict: BaselineVerdict;
+  p1ImprovementPct: number | null; // 正 = 勝出者較佳
+  avgImprovementPct: number | null;
+  baselineDriftPct: number | null; // 前後基線自身差異（環境漂移指標）
+}
+
 export interface QuickResult {
   methodVersion: number; candidates: CoreTarget[]; seed: number;
   screeningOrder: number[]; retestOrder: number[]; schedule: QuickSchedule;
   screening: CoreCapture[]; retest: CoreCapture[];
   status: RankingStatus; relativeGapPct: number | null;
+  baseline?: BaselineCompare | null; // 舊 session 無此欄位
 }
-export interface MigrationStatus { noticeRequired: boolean; cleanupError: string | null }
 
 // ── 實際遊戲量測相關型別 ──
 

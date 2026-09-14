@@ -236,6 +236,21 @@ pub struct LpResult {
     /// 慢幀 spike rate：frametime 超過 2×中位數的幀佔比（百分比，越低越好）
     #[serde(default)]
     pub spike_rate_pct: Option<f64>,
+    /// 顯示端平均 FPS：1000 / mean(msBetweenDisplayChange)（CSV 無顯示欄位 → None）
+    #[serde(default)]
+    pub displayed_avg_fps: Option<f64>,
+    /// 顯示端 1% low：最慢 1% 個 display-change 間隔的 instantaneous FPS 平均
+    #[serde(default)]
+    pub displayed_p1_low: Option<f64>,
+    /// present→顯示延遲平均（毫秒；msUntilDisplayed 序列）
+    #[serde(default)]
+    pub display_latency_avg_ms: Option<f64>,
+    /// present→顯示延遲 p99（毫秒）
+    #[serde(default)]
+    pub display_latency_p99_ms: Option<f64>,
+    /// 丟幀佔比（%，Dropped=1 的 present 佔比；CSV 無 Dropped 欄 → None）
+    #[serde(default)]
+    pub dropped_pct: Option<f64>,
     #[serde(default)]
     pub sample_count: u32,
     #[serde(default)]
@@ -629,6 +644,16 @@ pub struct SessionDetail {
     pub equivalent_safety_validation: Option<EquivalentSafetyValidation>,
 }
 
+/// 政策漂移偵測結果（runtime contract）。serde PascalCase。
+/// `Match` = 已套用政策仍在作用；`Drifted` = registry 已被外部修改；
+/// `None` = 無套用記錄（或無法判定）。
+#[derive(Serialize, Deserialize, Clone, Copy, Debug, PartialEq, Eq)]
+pub enum DriftStatus {
+    Match,
+    Drifted,
+    None,
+}
+
 /// 目前背景 GPU 操作種類（runtime contract）。serde PascalCase；null = 無操作。
 #[derive(Serialize, Deserialize, Clone, Copy, Debug, PartialEq, Eq)]
 pub enum BenchmarkOperation {
@@ -638,7 +663,7 @@ pub enum BenchmarkOperation {
     EquivalentValidation,
 }
 
-/// FrameAnchor 主視窗的執行期版面（runtime contract）。serde PascalCase。
+/// PaceDock 主視窗的執行期版面（runtime contract）。serde PascalCase。
 #[derive(Serialize, Deserialize, Clone, Copy, Debug, PartialEq, Eq, Default)]
 pub enum WindowLayout {
     /// 一般 UI（完整導覽/設定）。
@@ -711,6 +736,12 @@ pub struct BenchmarkState {
     /// 取消專用百分比（0..100）；無取消為 None。
     #[serde(default)]
     pub cancel_progress: Option<u32>,
+    /// 政策漂移偵測：已套用政策 vs 目前 registry。None = 無套用記錄。
+    #[serde(default)]
+    pub policy_drift: Option<DriftStatus>,
+    /// 已套用核心（對應 policyDrift；None = 無套用記錄）
+    #[serde(default)]
+    pub applied_core: Option<u32>,
 }
 
 /// 儲存體資訊（get_benchmark_storage_info）
@@ -877,6 +908,8 @@ mod tests {
             },
             cancel_stage: Some("stopping".to_string()),
             cancel_progress: Some(20),
+            policy_drift: Some(DriftStatus::Drifted),
+            applied_core: Some(2),
         };
         let json = serde_json::to_string(&s).unwrap();
         assert!(json.contains("\"sessionId\""));
@@ -923,6 +956,23 @@ mod tests {
             serde_json::from_str(r#"{"lp":3,"avgFps":240.0,"p1Low":90.0}"#).unwrap();
         assert_eq!(back.p1_percentile, None);
         assert_eq!(back.p1_low, Some(90.0));
+        // 顯示端指標欄位同為 serde default：舊 session 缺欄 → None
+        assert_eq!(back.displayed_avg_fps, None);
+        assert_eq!(back.displayed_p1_low, None);
+        assert_eq!(back.display_latency_avg_ms, None);
+        assert_eq!(back.display_latency_p99_ms, None);
+        assert_eq!(back.dropped_pct, None);
+        // 新欄位以 camelCase 序列化
+        let full = LpResult {
+            displayed_avg_fps: Some(120.0),
+            display_latency_p99_ms: Some(9.5),
+            dropped_pct: Some(1.5),
+            ..Default::default()
+        };
+        let json = serde_json::to_string(&full).unwrap();
+        assert!(json.contains("\"displayedAvgFps\":120.0"), "json={json}");
+        assert!(json.contains("\"displayLatencyP99Ms\":9.5"));
+        assert!(json.contains("\"droppedPct\":1.5"));
     }
 
     /// per_round_winners 以三欄固定位置（含 None）序列化，round 1 缺漏不會

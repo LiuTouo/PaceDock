@@ -158,6 +158,122 @@ pub struct QuickResult {
     pub retest: Vec<CoreCapture>,
     pub status: RankingStatus,
     pub relative_gap_pct: Option<f64>,
+    /// 原始策略（OS 預設）對照結果；舊 session 無此欄位 → None
+    #[serde(default)]
+    pub baseline: Option<BaselineCompare>,
+}
+
+/// 基線對照門檻：p1_low 需改善 ≥ [`BASELINE_P1_MIN_IMPROVE_PCT`]，
+/// avg 退步與 MAD/spike 惡化分別不得超過各自上限，否則不算「勝過預設」。
+pub const BASELINE_P1_MIN_IMPROVE_PCT: f64 = 1.0;
+pub const BASELINE_AVG_MAX_REGRESS_PCT: f64 = 1.0;
+pub const BASELINE_ROBUST_MAX_REGRESS_PCT: f64 = 5.0;
+/// 前後兩次基線自身差異超過此值（p1 相對中位數）→ 環境漂移，對照不可靠
+pub const BASELINE_DRIFT_MAX_PCT: f64 = 5.0;
+
+/// 勝出候選 vs 原始策略（前後兩次基線的中位數）的對照結論。
+/// 只改變推薦文案，不作為套用閘門（eligible 不受影響）。
+#[derive(Serialize, Deserialize, Clone, Debug, PartialEq)]
+#[serde(rename_all = "camelCase")]
+pub struct BaselineCompare {
+    pub verdict: BaselineVerdict,
+    /// 勝出者 1% low 相對基線中位數的改善百分比（正 = 較佳）
+    pub p1_improvement_pct: Option<f64>,
+    /// 勝出者 avg FPS 相對基線中位數的改善百分比
+    pub avg_improvement_pct: Option<f64>,
+    /// 前後基線自身的 p1 差異百分比（環境漂移指標；樣本不足 → None）
+    pub baseline_drift_pct: Option<f64>,
+}
+
+#[derive(Serialize, Deserialize, Clone, Copy, Debug, PartialEq, Eq)]
+pub enum BaselineVerdict {
+    /// 勝出候選明顯優於 OS 預設
+    BeatsDefault,
+    /// 與預設無顯著差異（套用無實質效益）
+    WithinThreshold,
+    /// OS 預設較佳
+    Worse,
+    /// 基線不可靠（無資料或前後漂移過大）
+    Inconclusive,
+}
+
+/// 純比較：勝出者與前後兩次原始策略基線的逐指標對比。
+/// 基線值取各 capture 的中位數（B0/B1 各一次 capture）。
+pub fn compare_baseline(winner: &LpResult, baselines: &[LpResult]) -> BaselineCompare {
+    use super::metrics::median;
+    let metric = |f: fn(&LpResult) -> Option<f64>| -> Option<f64> {
+        let vals: Vec<f64> = baselines
+            .iter()
+            .filter_map(|b| f(b))
+            .filter(|v| v.is_finite() && *v > 0.0)
+            .collect();
+        (!vals.is_empty()).then(|| median(&vals))
+    };
+    let improvement = |f: fn(&LpResult) -> Option<f64>| -> Option<f64> {
+        let base = metric(f)?;
+        let w = f(winner)?;
+        (w.is_finite() && w > 0.0).then(|| (w / base - 1.0) * 100.0)
+    };
+    let p1 = improvement(|b| b.p1_low);
+    let avg = improvement(|b| b.avg_fps);
+    // 前後基線自身漂移：兩次都有 p1 才計算
+    let drift = (baselines.len() == 2).then(|| -> Option<f64> {
+        let a = baselines[0].p1_low?;
+        let b = baselines[1].p1_low?;
+        let base = metric(|x| x.p1_low)?;
+        Some(((a - b).abs() / base) * 100.0)
+    });
+    let baseline_drift_pct = drift.flatten();
+    let inconclusive = BaselineCompare {
+        verdict: BaselineVerdict::Inconclusive,
+        p1_improvement_pct: p1,
+        avg_improvement_pct: avg,
+        baseline_drift_pct,
+    };
+    // 環境漂移過大或基線無有效 p1 → 對照不可靠
+    if metric(|b| b.p1_low).is_none() {
+        return inconclusive;
+    }
+    if baseline_drift_pct.is_some_and(|d| d > BASELINE_DRIFT_MAX_PCT) {
+        return inconclusive;
+    }
+    let Some(p1_imp) = p1 else {
+        return inconclusive;
+    };
+    // 明顯更差：p1 或 avg 退步超過門檻
+    if p1_imp < -BASELINE_P1_MIN_IMPROVE_PCT
+        || avg.is_some_and(|a| a < -BASELINE_AVG_MAX_REGRESS_PCT)
+    {
+        return BaselineCompare {
+            verdict: BaselineVerdict::Worse,
+            p1_improvement_pct: p1,
+            avg_improvement_pct: avg,
+            baseline_drift_pct,
+        };
+    }
+    // 勝過預設：p1 改善達標、avg 無明顯退步、MAD/spike 無明顯惡化
+    let guards: [fn(&LpResult) -> Option<f64>; 2] =
+        [|b| b.frametime_mad_pct, |b| b.spike_rate_pct];
+    let robust_ok = guards.iter().all(|f| match (metric(*f), (*f)(winner)) {
+        (Some(base), Some(w)) if base > 0.0 && w.is_finite() => {
+            (w / base - 1.0) * 100.0 <= BASELINE_ROBUST_MAX_REGRESS_PCT
+        }
+        _ => true, // 基線缺該指標 → 不納入守門
+    });
+    let verdict = if p1_imp >= BASELINE_P1_MIN_IMPROVE_PCT
+        && avg.map_or(true, |a| a >= -BASELINE_AVG_MAX_REGRESS_PCT)
+        && robust_ok
+    {
+        BaselineVerdict::BeatsDefault
+    } else {
+        BaselineVerdict::WithinThreshold
+    };
+    BaselineCompare {
+        verdict,
+        p1_improvement_pct: p1,
+        avg_improvement_pct: avg,
+        baseline_drift_pct,
+    }
 }
 
 pub fn shuffled(ids: &[u32], seed: u32) -> Vec<u32> {
@@ -362,5 +478,62 @@ mod tests {
         let mut bad = rows[0].clone();
         bad.avg_fps = Some(f64::NAN);
         assert!(rank(&[bad], &targets).is_empty());
+    }
+
+    // ── 原始策略對照（baseline A/B）──
+
+    fn base_result(avg: f64, p1: f64, mad: f64, spike: f64) -> LpResult {
+        LpResult {
+            lp: 0,
+            avg_fps: Some(avg),
+            p1_low: Some(p1),
+            frametime_mad_pct: Some(mad),
+            spike_rate_pct: Some(spike),
+            completed: true,
+            ..Default::default()
+        }
+    }
+
+    #[test]
+    fn baseline_compare_beats_within_worse_and_inconclusive() {
+        // 基線：p1=100、avg=200、MAD=10、spike=10（B0/B1 一致）
+        let base = base_result(200.0, 100.0, 10.0, 10.0);
+        // 勝出者 p1 +3%、avg −0.5%、MAD/spike 持平 → BeatsDefault
+        let winner = base_result(199.0, 103.0, 10.0, 10.0);
+        let cmp = compare_baseline(&winner, &[base.clone(), base.clone()]);
+        assert_eq!(cmp.verdict, BaselineVerdict::BeatsDefault);
+        assert!((cmp.p1_improvement_pct.unwrap() - 3.0).abs() < 1e-9);
+        assert!((cmp.avg_improvement_pct.unwrap() + 0.5).abs() < 1e-9);
+        assert!(cmp.baseline_drift_pct.unwrap() < 1e-9);
+        // p1 僅 +0.5% → WithinThreshold
+        let near = base_result(200.0, 100.5, 10.0, 10.0);
+        assert_eq!(
+            compare_baseline(&near, &[base.clone(), base.clone()]).verdict,
+            BaselineVerdict::WithinThreshold
+        );
+        // p1 −2% → Worse
+        let worse = base_result(200.0, 98.0, 10.0, 10.0);
+        assert_eq!(
+            compare_baseline(&worse, &[base.clone(), base.clone()]).verdict,
+            BaselineVerdict::Worse
+        );
+        // MAD 惡化 +20%（> 5% 上限）→ 降級 WithinThreshold
+        let regressed = base_result(200.0, 103.0, 12.0, 10.0);
+        assert_eq!(
+            compare_baseline(&regressed, &[base.clone(), base.clone()]).verdict,
+            BaselineVerdict::WithinThreshold
+        );
+        // 前後基線 p1 差 8%（> 5% 漂移上限）→ Inconclusive
+        let b0 = base_result(200.0, 96.0, 10.0, 10.0);
+        let b1 = base_result(200.0, 104.0, 10.0, 10.0);
+        let cmp = compare_baseline(&winner, &[b0, b1]);
+        assert_eq!(cmp.verdict, BaselineVerdict::Inconclusive);
+        assert!((cmp.baseline_drift_pct.unwrap() - 8.0).abs() < 1e-9);
+        // 無有效基線 → Inconclusive
+        let empty = LpResult::default();
+        assert_eq!(
+            compare_baseline(&winner, &[empty]).verdict,
+            BaselineVerdict::Inconclusive
+        );
     }
 }

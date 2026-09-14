@@ -6,8 +6,10 @@ pub mod core_apply;
 // 所有會動系統的協調都寫成接受注入路徑的 free function，
 // 單元測試用 fake backend + 暫存目錄跑完整流程，不碰真實 HKLM/裝置。
 
+use serde::{Deserialize, Serialize};
+
 use std::path::{Path, PathBuf};
-use std::sync::atomic::{AtomicBool, AtomicU8, Ordering};
+use std::sync::atomic::{AtomicBool, AtomicU8, AtomicU64, Ordering};
 use std::sync::{Arc, RwLock};
 
 use tauri::{AppHandle, Emitter, Manager};
@@ -37,11 +39,11 @@ use super::window_layout::{self, plan_layout, RealMainWindowController};
 use super::window_win::RealWorkloadWindow;
 use super::{
     cpu_fingerprint_with, detect_cpu_identity, BenchmarkConfig, BenchmarkOperation,
-    BenchmarkProgress, BenchmarkStage, BenchmarkState, CpuIdentity, SessionDetail, SessionStatus,
-    WindowIntegrity, WindowLayout,
+    BenchmarkProgress, BenchmarkStage, BenchmarkState, CpuIdentity, DriftStatus, SessionDetail,
+    SessionStatus, WindowIntegrity, WindowLayout,
 };
 
-/// 一層還原記錄檔：`%APPDATA%\FrameAnchor\gpu-restore.json`。
+/// 一層還原記錄檔：`%APPDATA%\PaceDock\gpu-restore.json`。
 /// 只保留最近一次成功套用的快照（one-level）。
 pub fn restore_record_path() -> PathBuf {
     config::config_dir().join("gpu-restore.json")
@@ -435,6 +437,230 @@ fn clear_restore_record(path: &Path) -> Result<(), String> {
     }
 }
 
+// ── 政策漂移偵測 ────────────────────────────────────────────────────────
+
+/// 已套用政策記錄：`%APPDATA%\PaceDock\gpu-applied.json`（HMAC 認證）。
+/// 記住「目前鎖定哪個 GPU 的哪顆核心與 mask」，供漂移偵測比對；
+/// 驅動更新或外部工具改寫 registry 後可偵測並提示重新套用/還原。
+#[derive(Serialize, Deserialize, Clone, Debug)]
+#[serde(rename_all = "camelCase")]
+pub struct AppliedPolicyRecord {
+    pub instance_id: String,
+    pub core_id: u32,
+    /// 套用的完整 LP 清單（含 SMT sibling）
+    pub lp_indices: Vec<u16>,
+    /// 套用的 AssignmentSetOverride 原始位元組（比對基準，免重組 mask）
+    pub override_bytes: Vec<u8>,
+    /// RFC3339 套用時間
+    pub applied_at: String,
+}
+
+/// 已套用政策記錄路徑
+pub fn applied_record_path() -> PathBuf {
+    config::config_dir().join("gpu-applied.json")
+}
+
+fn write_applied_record(path: &Path, record: &AppliedPolicyRecord) -> Result<(), String> {
+    let text = serde_json::to_string_pretty(record).map_err(|e| format!("序列化: {e}"))?;
+    crate::state_auth::auth_write(path, &text)
+}
+
+/// 檢查已套用政策是否仍與 registry 一致（純比對，可注入路徑測試）。
+/// 無記錄/記錄損壞/讀取失敗 → DriftStatus::None（診斷面 fail-quiet，不誤報）。
+pub fn check_policy_drift_at(
+    backend: &dyn GpuBackend,
+    record_path: &Path,
+) -> DriftStatus {
+    let Ok(Some(record)) = load_applied_record(record_path) else {
+        return DriftStatus::None;
+    };
+    let current = match backend.read_affinity_policy(&record.instance_id) {
+        Ok(p) => p,
+        Err(e) => {
+            log::warn!("漂移偵測讀取 registry 失敗: {}", e.code());
+            return DriftStatus::None;
+        }
+    };
+    let expected = AffinityPolicy {
+        instance_id: record.instance_id.clone(),
+        device_policy: RegistryValueSnapshot::dword(DEVICE_POLICY_SINGLE_PROCESSOR),
+        assignment_set_override: RegistryValueSnapshot::binary(record.override_bytes.clone()),
+    };
+    if crate::gpu::policy_matches(&expected, &current) {
+        DriftStatus::Match
+    } else {
+        DriftStatus::Drifted
+    }
+}
+
+/// 讀取已套用政策記錄（HMAC fail-closed；無記錄 → None；篡改/損壞 → Err）
+fn load_applied_record(path: &Path) -> Result<Option<AppliedPolicyRecord>, String> {
+    if !path.exists() {
+        return Ok(None);
+    }
+    let text = crate::state_auth::auth_read(path)?;
+    serde_json::from_str(&text)
+        .map(Some)
+        .map_err(|e| format!("套用記錄解析失敗: {e}"))
+}
+
+/// MSI 還原記錄：`%APPDATA%\PaceDock\gpu-msi-restore.json`（HMAC 認證）。
+/// 內容為套用前的 `MSISupported` 值快照（本來不存在 → present:false）。
+pub fn msi_record_path() -> PathBuf {
+    config::config_dir().join("gpu-msi-restore.json")
+}
+
+/// 讀取 MSI 還原記錄（HMAC fail-closed；無記錄 → None）
+fn load_msi_record(path: &Path) -> Result<Option<RegistryValueSnapshot>, String> {
+    if !path.exists() {
+        return Ok(None);
+    }
+    let text = crate::state_auth::auth_read(path)?;
+    serde_json::from_str(&text)
+        .map(Some)
+        .map_err(|e| format!("MSI 還原記錄解析失敗: {e}"))
+}
+
+/// 寫入 MSI 還原記錄（HMAC 認證）
+fn write_msi_record(path: &Path, snapshot: &RegistryValueSnapshot) -> Result<(), String> {
+    let text = serde_json::to_string_pretty(snapshot).map_err(|e| format!("序列化: {e}"))?;
+    crate::state_auth::auth_write(path, &text)
+}
+
+fn clear_msi_record(path: &Path) -> Result<(), String> {
+    match std::fs::remove_file(path) {
+        Ok(_) => Ok(()),
+        Err(e) if e.kind() == std::io::ErrorKind::NotFound => Ok(()),
+        Err(e) => Err(format!("清除 MSI 還原記錄失敗: {e}")),
+    }
+}
+
+/// 統一 MSI rollback：寫回快照（含裝置重啟與驗證）並清記錄。
+/// 語意與 [`rollback`] 一致：還原成功且記錄清除成功 → clean=true。
+fn rollback_msi(
+    backend: &dyn GpuBackend,
+    sleeper: &dyn Sleep,
+    instance_id: &str,
+    snapshot: &RegistryValueSnapshot,
+    record_path: &Path,
+    error_code: &str,
+) -> ApplyError {
+    match restore_msi_snapshot(backend, sleeper, instance_id, snapshot) {
+        Ok(()) => {
+            let cleared = clear_msi_record(record_path);
+            if cleared.is_ok() {
+                ApplyError { code: error_code.to_string(), clean: true }
+            } else {
+                log::error!("MSI rollback 清除記錄失敗: {cleared:?}");
+                ApplyError { code: error_code.to_string(), clean: false }
+            }
+        }
+        Err(e) => {
+            log::error!("MSI mutation 還原失敗: {e}");
+            let _ = clear_msi_record(record_path);
+            ApplyError { code: error_code.to_string(), clean: false }
+        }
+    }
+}
+
+/// 寫回 MSI 快照 + 重啟 + 回讀驗證（快照 absent → 刪值）
+fn restore_msi_snapshot(
+    backend: &dyn GpuBackend,
+    sleeper: &dyn Sleep,
+    instance_id: &str,
+    snapshot: &RegistryValueSnapshot,
+) -> Result<(), String> {
+    backend
+        .write_msi_supported(instance_id, snapshot)
+        .map_err(|e| e.code().to_string())?;
+    backend
+        .restart_device(instance_id, sleeper)
+        .map_err(|e| e.code().to_string())?;
+    let read_back = backend
+        .read_msi_supported(instance_id)
+        .map_err(|e| e.code().to_string())?;
+    if read_back != *snapshot {
+        return Err(codes::GPU_RESTORE_FAILED.to_string());
+    }
+    Ok(())
+}
+
+/// 啟用 GPU MSI 模式：`MSISupported=1`（REG_DWORD）+ 裝置重啟 + 回讀驗證。
+/// 前置：呼叫端已取得 mutation 排他權、驗證 GPU 存在。
+/// `ponytail:` 刻意不接 recovery journal：寫入+重啟後即為期望終態，crash 中斷
+/// 最壞情況是「已啟用但記錄殘留」（記錄僅作還原指標，不會被啟動流程誤套用）；
+/// 若要求 crash-safe 回滾，再為 MSI 接 journal stage（升級路徑）。
+pub fn apply_msi_to_gpu(
+    backend: &dyn GpuBackend,
+    sleeper: &dyn Sleep,
+    instance_id: &str,
+    record_path: &Path,
+) -> Result<(), ApplyError> {
+    // 1) 快照目前值；已啟用 → no-op 成功（避免無謂裝置重啟）
+    let snapshot = backend
+        .read_msi_supported(instance_id)
+        .map_err(|e| ApplyError::clean(e.code()))?;
+    if snapshot.as_dword() == Some(1) {
+        return Ok(());
+    }
+    // 2) 先寫還原記錄（HMAC），再動 registry
+    write_msi_record(record_path, &snapshot).map_err(|e| {
+        log::error!("MSI 還原記錄寫入失敗: {e}");
+        ApplyError::clean(codes::GPU_APPLY_FAILED)
+    })?;
+    // 3) 寫入 MSISupported=1
+    if let Err(_e) = backend.write_msi_supported(instance_id, &RegistryValueSnapshot::dword(1)) {
+        return Err(rollback_msi(
+            backend,
+            sleeper,
+            instance_id,
+            &snapshot,
+            record_path,
+            codes::GPU_APPLY_FAILED,
+        ));
+    }
+    // 4) 重啟裝置 + 5) 回讀驗證
+    if let Err(_e) = backend.restart_device(instance_id, sleeper) {
+        return Err(rollback_msi(
+            backend,
+            sleeper,
+            instance_id,
+            &snapshot,
+            record_path,
+            codes::GPU_RESTART_FAILED,
+        ));
+    }
+    let read_back = backend
+        .read_msi_supported(instance_id)
+        .map_err(|e| ApplyError::clean(e.code()))?;
+    if read_back.as_dword() != Some(1) {
+        return Err(rollback_msi(
+            backend,
+            sleeper,
+            instance_id,
+            &snapshot,
+            record_path,
+            codes::GPU_APPLY_FAILED,
+        ));
+    }
+    Ok(())
+}
+
+/// 關閉 GPU MSI 模式（寫回套用前快照：absent → 刪值）+ 重啟 + 驗證。
+/// 前置：呼叫端已取得 mutation 排他權、驗證 GPU 存在。
+pub fn restore_msi_to_gpu(
+    backend: &dyn GpuBackend,
+    sleeper: &dyn Sleep,
+    instance_id: &str,
+    record_path: &Path,
+) -> Result<(), String> {
+    let snapshot =
+        load_msi_record(record_path)?.ok_or_else(|| codes::GPU_RESTORE_FAILED.to_string())?;
+    restore_msi_snapshot(backend, sleeper, instance_id, &snapshot)?;
+    clear_msi_record(record_path)?;
+    Ok(())
+}
+
 /// 測試用 fault injection（僅 `#[cfg(test)]`；production 編譯不含）。
 /// 採 thread-local，避免測試平行執行時彼此干擾。
 #[cfg(test)]
@@ -469,6 +695,10 @@ const OP_UPDATE: u8 = 4;
 /// （`--stop_existing_session` 會毀掉執行中 benchmark 的 session）。
 const OP_CAPTURE: u8 = 5;
 
+/// 政策漂移偵測的最小間隔（毫秒）：搭 get_benchmark_state 既有輪詢節流，
+/// 避免每秒重讀 HKLM registry。
+const DRIFT_CHECK_INTERVAL_MS: u64 = 15_000;
+
 /// RAII 釋放：drop 時把 reservation 歸零。背景 benchmark 的 guard 會被移入
 /// runner 的 closure，直到 runner 終結（寫完最終 status 後）才 drop，確保
 /// 執行期間其他 mutation/start 全被拒絕；panic 也會觸發 drop。
@@ -494,6 +724,8 @@ pub struct BenchmarkManager {
     sleeper: Arc<dyn Sleep>,
     pub recovery_required: AtomicBool,
     reservation: Arc<AtomicU8>,
+    /// 漂移偵測上次檢查時間（毫秒 epoch；0 = 立即檢查）
+    drift_checked_at: AtomicU64,
     cancel_tx: tokio::sync::watch::Sender<bool>,
     cancel_rx: tokio::sync::watch::Receiver<bool>,
 }
@@ -507,6 +739,7 @@ impl BenchmarkManager {
             sleeper: Arc::new(RealSleeper),
             recovery_required: AtomicBool::new(false),
             reservation: Arc::new(AtomicU8::new(OP_IDLE)),
+            drift_checked_at: AtomicU64::new(0),
             cancel_tx,
             cancel_rx,
         }
@@ -572,12 +805,19 @@ impl BenchmarkManager {
     /// 啟動時呼叫：存在 pending 還原日誌則嘗試還原。
     /// 失敗 → recovery_required=true，封鎖新的 test/apply。
     pub fn attempt_startup_recovery(&self) {
+        // 有 pending 日誌的啟動還原會把策略回滾到套用前 → 套用記錄失效
+        let had_journal = recovery::recovery_path().exists();
         match attempt_startup_recovery(
             self.backend.as_ref(),
             self.sleeper.as_ref(),
             &recovery::recovery_path(),
         ) {
-            Ok(()) => log::info!("啟動還原：無 pending 或已還原"),
+            Ok(()) => {
+                log::info!("啟動還原：無 pending 或已還原");
+                if had_journal {
+                    let _ = std::fs::remove_file(applied_record_path());
+                }
+            }
             Err(e) => {
                 log::error!("啟動還原失敗: {e}；封鎖基準測試與套用操作");
                 self.set_recovery_required();
@@ -637,7 +877,33 @@ impl BenchmarkManager {
         let mut s = self.state.read().map(|s| s.clone()).unwrap_or_default();
         s.recovery_required = self.recovery_required();
         s.gpu_busy = self.reservation.load(Ordering::Acquire) != OP_IDLE;
+        self.refresh_drift(&mut s);
         s
+    }
+
+    /// 政策漂移偵測（節流 [`DRIFT_CHECK_INTERVAL_MS`]，GPU 閒置才查）。
+    /// 搭 `get_benchmark_state` 既有輪詢，不加背景 thread；
+    /// 套用/還原後 `drift_checked_at` 歸零可強制重查（目前靠 15s 內自然到期）。
+    fn refresh_drift(&self, s: &mut BenchmarkState) {
+        if self.reservation.load(Ordering::Acquire) != OP_IDLE {
+            return; // mutation/benchmark 進行中不讀 registry（剛寫入的值會誤判）
+        }
+        let now = std::time::SystemTime::now()
+            .duration_since(std::time::UNIX_EPOCH)
+            .map(|d| d.as_millis() as u64)
+            .unwrap_or(0);
+        let last = self.drift_checked_at.swap(now, Ordering::Relaxed);
+        if last != 0 && now.saturating_sub(last) < DRIFT_CHECK_INTERVAL_MS {
+            return;
+        }
+        s.policy_drift = Some(check_policy_drift_at(
+            self.backend.as_ref(),
+            &applied_record_path(),
+        ));
+        s.applied_core = load_applied_record(&applied_record_path())
+            .ok()
+            .flatten()
+            .map(|r| r.core_id);
     }
 
     /// 套用最佳 LP。recovery 未完成或已有任何 GPU 操作時封鎖。
@@ -773,6 +1039,55 @@ impl BenchmarkManager {
         self.restore_previous_at(&recovery::recovery_path(), &restore_record_path())
     }
 
+    /// 啟用 GPU MSI 模式（生產入口；guard 由 ipc 取得）。
+    /// MSI 的失敗不設 recovery_required——該旗標屬於 affinity 管線的
+    /// 啟動還原流程；MSI rollback 自帶還原與錯誤碼，不應永久封鎖套用。
+    pub(crate) fn apply_msi_reserved(
+        &self,
+        _guard: GpuOperationGuard,
+        instance_id: &str,
+    ) -> Result<(), String> {
+        let present = self
+            .backend
+            .enumerate_present_adapters()
+            .map_err(|e| e.code().to_string())?
+            .iter()
+            .any(|d| d.instance_id.eq_ignore_ascii_case(instance_id));
+        if !present {
+            return Err(codes::GPU_NOT_FOUND.to_string());
+        }
+        apply_msi_to_gpu(
+            self.backend.as_ref(),
+            self.sleeper.as_ref(),
+            instance_id,
+            &msi_record_path(),
+        )
+        .map_err(|e| e.code)
+    }
+
+    /// 關閉 GPU MSI 模式（寫回套用前快照；生產入口）
+    pub(crate) fn restore_msi_reserved(
+        &self,
+        _guard: GpuOperationGuard,
+        instance_id: &str,
+    ) -> Result<(), String> {
+        let present = self
+            .backend
+            .enumerate_present_adapters()
+            .map_err(|e| e.code().to_string())?
+            .iter()
+            .any(|d| d.instance_id.eq_ignore_ascii_case(instance_id));
+        if !present {
+            return Err(codes::GPU_NOT_FOUND.to_string());
+        }
+        restore_msi_to_gpu(
+            self.backend.as_ref(),
+            self.sleeper.as_ref(),
+            instance_id,
+            &msi_record_path(),
+        )
+    }
+
     fn restore_previous_at(&self, journal: &Path, restore: &Path) -> Result<(), String> {
         // 未完成的測試回復優先，不以更舊的手動還原覆蓋它。
         if self.recovery_required() || journal.exists() {
@@ -789,6 +1104,10 @@ impl BenchmarkManager {
         let result = restore_snapshot(self.backend.as_ref(), self.sleeper.as_ref(), &snapshot)
             .and_then(|_| clear_restore_record(restore))
             .and_then(|_| recovery::clear_at(journal));
+        if result.is_ok() {
+            // 已還原原始策略 → 套用記錄失效
+            let _ = std::fs::remove_file(applied_record_path());
+        }
         if result.is_err() {
             self.set_recovery_required();
         }
@@ -929,7 +1248,7 @@ impl BenchmarkManager {
         let config = detail.summary.config.clone();
         let fps_cap = detail.summary.capture_quality.effective_fps_cap;
         let buffer = detail.summary.capture_quality.circular_buffer_size;
-        let validation_dir = std::env::temp_dir().join(format!("frameanchor_equiv_{session_id}"));
+        let validation_dir = std::env::temp_dir().join(format!("pacedock_equiv_{session_id}"));
         let _ = std::fs::create_dir_all(&validation_dir);
 
         self.reset_cancel();
@@ -1680,7 +1999,7 @@ mod tests {
 
     fn temp_dir(name: &str) -> PathBuf {
         let dir =
-            std::env::temp_dir().join(format!("frameanchor_mgr_{}_{}", std::process::id(), name));
+            std::env::temp_dir().join(format!("pacedock_mgr_{}_{}", std::process::id(), name));
         let _ = std::fs::remove_dir_all(&dir);
         let _ = std::fs::remove_file(dir.join("journal.json"));
         std::fs::create_dir_all(&dir).unwrap();
@@ -3682,5 +4001,130 @@ mod tests {
         m.end_update();
         assert!(!m.state_snapshot().gpu_busy);
         assert!(m.can_exit());
+    }
+
+    // ── MSI 模式 ────────────────────────────────────────────────────────
+
+    #[test]
+    fn msi_apply_enables_restarts_and_records_snapshot() {
+        let dir = temp_dir("msi_on");
+        let record = dir.join("msi.json");
+        let backend = FakeBackend::new(vec![device(GPU_A)]);
+        backend.set_msi(GPU_A, Some(0)); // 行線中斷
+
+        apply_msi_to_gpu(&backend, &NoopSleeper, GPU_A, &record).unwrap();
+
+        assert_eq!(backend.msi_value(GPU_A), Some(1));
+        assert_eq!(backend.restart_count(), 1);
+        assert!(record.exists(), "還原記錄應寫入");
+        let _ = std::fs::remove_dir_all(&dir);
+    }
+
+    #[test]
+    fn msi_apply_absent_value_also_records_absent_snapshot() {
+        let dir = temp_dir("msi_absent");
+        let record = dir.join("msi.json");
+        let backend = FakeBackend::new(vec![device(GPU_A)]);
+        // 不 set_msi → 值不存在
+
+        apply_msi_to_gpu(&backend, &NoopSleeper, GPU_A, &record).unwrap();
+        assert_eq!(backend.msi_value(GPU_A), Some(1));
+
+        // 還原 → 回到「不存在」
+        restore_msi_to_gpu(&backend, &NoopSleeper, GPU_A, &record).unwrap();
+        assert_eq!(backend.msi_value(GPU_A), None);
+        assert!(!record.exists(), "還原後記錄應清除");
+        assert_eq!(backend.restart_count(), 2);
+        let _ = std::fs::remove_dir_all(&dir);
+    }
+
+    #[test]
+    fn msi_apply_is_noop_when_already_enabled() {
+        let dir = temp_dir("msi_noop");
+        let record = dir.join("msi.json");
+        let backend = FakeBackend::new(vec![device(GPU_A)]);
+        backend.set_msi(GPU_A, Some(1));
+
+        apply_msi_to_gpu(&backend, &NoopSleeper, GPU_A, &record).unwrap();
+
+        assert_eq!(backend.restart_count(), 0, "已啟用不得重啟裝置");
+        assert!(!record.exists(), "no-op 不得寫還原記錄");
+        let _ = std::fs::remove_dir_all(&dir);
+    }
+
+    #[test]
+    fn msi_apply_rolls_back_when_write_fails() {
+        let dir = temp_dir("msi_rollback");
+        let record = dir.join("msi.json");
+        let backend = FakeBackend::new(vec![device(GPU_A)]);
+        backend.set_msi(GPU_A, Some(0));
+        // fake 的 MSI write 無故障注入；以 restart 失敗驗證 rollback 路徑
+        //（寫入失敗與重啟失敗走同一個 rollback_msi）。
+        backend.fail_next_restart.store(true, Ordering::SeqCst);
+        let err = apply_msi_to_gpu(&backend, &NoopSleeper, GPU_A, &record).unwrap_err();
+        assert_eq!(err.code, codes::GPU_RESTART_FAILED);
+        assert_eq!(backend.msi_value(GPU_A), Some(0), "rollback 應寫回原值");
+        assert!(!record.exists(), "rollback 應清記錄");
+        let _ = std::fs::remove_dir_all(&dir);
+    }
+
+    #[test]
+    fn msi_restore_without_record_fails() {
+        let dir = temp_dir("msi_restore_norecord");
+        let record = dir.join("msi.json");
+        let backend = FakeBackend::new(vec![device(GPU_A)]);
+        assert!(restore_msi_to_gpu(&backend, &NoopSleeper, GPU_A, &record).is_err());
+        let _ = std::fs::remove_dir_all(&dir);
+    }
+
+    // ── 政策漂移偵測 ────────────────────────────────────────────────────
+
+    #[test]
+    fn policy_drift_reports_match_drifted_and_none() {
+        let dir = temp_dir("drift");
+        let record = dir.join("applied.json");
+        let backend = FakeBackend::new(vec![device(GPU_A)]);
+        // 無記錄 → None
+        assert_eq!(check_policy_drift_at(&backend, &record), DriftStatus::None);
+        // 套用 LP 5（經 apply_mask_to_gpu 正式路徑）→ Match
+        apply_mask_to_gpu(
+            &backend,
+            &NoopSleeper,
+            GPU_A,
+            single_lp_mask_bytes(5),
+            &dir.join("journal.json"),
+            &dir.join("restore.json"),
+        )
+        .unwrap();
+        write_applied_record(
+            &record,
+            &AppliedPolicyRecord {
+                instance_id: GPU_A.to_string(),
+                core_id: 2,
+                lp_indices: vec![5],
+                override_bytes: single_lp_mask_bytes(5),
+                applied_at: chrono::Local::now().to_rfc3339(),
+            },
+        )
+        .unwrap();
+        assert_eq!(check_policy_drift_at(&backend, &record), DriftStatus::Match);
+        // 外部改寫（mask 變為 LP 9）→ Drifted
+        backend.set_policy(policy_on(GPU_A, 4, 1 << 9));
+        assert_eq!(
+            check_policy_drift_at(&backend, &record),
+            DriftStatus::Drifted
+        );
+        let _ = std::fs::remove_dir_all(&dir);
+    }
+
+    #[test]
+    fn policy_drift_tampered_record_reports_none() {
+        let dir = temp_dir("drift_tamper");
+        let record = dir.join("applied.json");
+        let backend = FakeBackend::new(vec![device(GPU_A)]);
+        // 未經 HMAC 寫入的偽造記錄 → fail-closed 視為無記錄
+        std::fs::write(&record, r#"{"instanceId":"x","coreId":1}"#).unwrap();
+        assert_eq!(check_policy_drift_at(&backend, &record), DriftStatus::None);
+        let _ = std::fs::remove_dir_all(&dir);
     }
 }

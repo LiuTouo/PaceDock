@@ -1,8 +1,8 @@
-# FrameAnchor 核心方法與 FPS 穩定度完整評估
+# PaceDock 核心方法與 FPS 穩定度完整評估
 
 評估日期：2026-09-09。程式版本：0.2.7，commit `32f0bbed13feb070293e1b10b2500b49dfe05c1c`。評估包含現行原始碼、443 項 Rust 測試、一筆本機既有 benchmark 的原始 CSV，以及 [Microsoft、Intel、PresentMon 與 NIST 一手資料核對](fps-stability-primary-sources.md)。沒有重新啟動 GPU benchmark、修改 GPU 策略或遊戲程序設定。
 
-**結論：核心方法有條件成立，但目前證據不足以認定 FrameAnchor 能普遍、可靠地改善實際遊戲 FPS 穩定度。** 它已具備排程規則執行與合成實驗工具的功能；目前最強證據是「在特定機器、特定高速 Vulkan 合成負載中，LP 2 相對 LP 14 有較好的部分 Present 間隔統計」。這尚未跨越到「優於原始 Windows 策略」，更沒有跨越到「推薦核心配置改善實際遊戲」。
+**結論：核心方法有條件成立，但目前證據不足以認定 PaceDock 能普遍、可靠地改善實際遊戲 FPS 穩定度。** 它已具備排程規則執行與合成實驗工具的功能；目前最強證據是「在特定機器、特定高速 Vulkan 合成負載中，LP 2 相對 LP 14 有較好的部分 Present 間隔統計」。這尚未跨越到「優於原始 Windows 策略」，更沒有跨越到「推薦核心配置改善實際遊戲」。
 
 **一、先定義要改善的結果**
 
@@ -30,7 +30,7 @@ Microsoft 指出硬 affinity 可能妨礙有效排程；Intel 的遊戲執行緒
 
 **三、本機已存在的實測證據**
 
-讀取本機唯一既有 session：`%APPDATA%\FrameAnchor\benchmarks\e0ded88f-01eb-4893-a7fb-e91ff8726987\session.json`。
+讀取本機唯一既有 session：`%APPDATA%\PaceDock\benchmarks\e0ded88f-01eb-4893-a7fb-e91ff8726987\session.json`。
 
 - 日期：2026-09-03；GPU：RTX 5080；Vulkan，1280×720 視窗模式。
 - Adaptive 校準到 4,000 FPS；候選僅 LP 2、4、6、8、10、12、14。
@@ -105,7 +105,7 @@ Microsoft 指出硬 affinity 可能妨礙有效排程；Intel 的遊戲執行緒
 | D：組合 | 候選單 LP | 推薦集合 | 原始設定 |
 | E：優先序增量 | 由 A–D 中已驗證配置決定 | 同左 | 分開比較 Normal／AboveNormal／High |
 
-先另外比較 A 下工具關閉與僅監控的差異。控制組不能只是關閉 FrameAnchor：程序設定可能留存到程序結束，GPU policy 也會持續；必須回復 GPU 原始快照並重新啟動遊戲，驗證實際狀態。
+先另外比較 A 下工具關閉與僅監控的差異。控制組不能只是關閉 PaceDock：程序設定可能留存到程序結束，GPU policy 也會持續；必須回復 GPU 原始快照並重新啟動遊戲，驗證實際狀態。
 
 使用固定 replay／路線、先暖機，再做跨多次啟動與跨日的配對區塊；區塊內隨機順序或平衡 AB／BA。起始可規劃每條件 8–12 次、每次 60–120 秒，實際次數再依先導變異與預先訂定的最小效益調整；這是實驗規劃建議，不是統計保證。不能把同一 capture 的十萬幀當成十萬次獨立實驗。[NIST randomized blocks](https://www.itl.nist.gov/div898/handbook/pri/section3/pri332.htm)。
 

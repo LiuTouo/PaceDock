@@ -1,10 +1,10 @@
-# FrameAnchor
+# PaceDock
 
-<p align="center"><img src="src-tauri/icons/icon.png" width="128" alt="FrameAnchor 圖示"></p>
+<p align="center"><img src="src-tauri/icons/icon.png" width="128" alt="PaceDock 圖示"></p>
 
 Windows GPU 實體核心調校工具。**繁體中文** · [English](README.en.md)
 
-FrameAnchor 以合成負載比較 GPU 中斷親和性的實體核心候選，提供結果、歷史、手動套用與還原。啟動直接進入 GPU 頁，用完即可退出。
+PaceDock 以合成負載比較 GPU 中斷親和性的實體核心候選，提供結果、歷史、手動套用與還原。啟動直接進入 GPU 頁，用完即可退出。
 
 ## 實測中斷核心
 
@@ -33,13 +33,14 @@ GPU 頁的「實測中斷 CPU 核心」可取樣 3 秒，列出實際處理 ISR 
 
 套用時前端只傳核心 ID；後端驗證 session HMAC、GPU、CPU 指紋及完整核心 LP 集合，再建立遮罩，寫入後重啟並回讀。遇到錯誤會嘗試回復，未完成的回復日誌不會刪除。還原原始策略不受新版候選限制。
 
-## 升級與資料
+## 安裝與資料
 
 - 舊單 LP 歷史保留檢視，不可套用、不會自動擴大為整顆核心，也不會自動重新簽署。
 - 舊 GPU 還原紀錄繼續有效。多 bit 策略會顯示實際完整 LP 集合。
 - 舊遊戲 CPU 規則保留在設定檔中，但永不執行；儲存一般設定也會保留它們。若仍在執行的遊戲曾被舊版修改，請重新啟動遊戲。
-- 系統匣、遊戲規則頁、Dashboard、自啟與最小化啟動已移除。升級時只清理可辨識為本工具建立的舊自啟排程；失敗時顯示原因並可重試。
-- 一般設定保留語言、主題、更新與資料目錄功能。資料位於 `%APPDATA%\FrameAnchor`。
+- 系統匣、遊戲規則頁、Dashboard、自啟與最小化啟動已移除。本版不提供舊版自啟排程清理。
+- 更名版採全新安裝，不自動搬移舊品牌的設定、歷史、還原紀錄或金鑰，也不支援由舊品牌自動更新。切換前請先使用舊版還原 GPU 策略、停用舊自啟排程並退出；保留舊資料與金鑰，直到確認不再需要還原。
+- 一般設定保留語言、主題、更新與資料目錄功能。資料位於 `%APPDATA%\PaceDock`。
 - 閒置時關閉視窗直接退出；GPU 測試、套用或還原期間會阻止退出，必須等待操作與清理完成。
 
 GPU 策略操作需要管理員權限，並會重啟顯示裝置，畫面可能短暫閃黑。擷取保留 ETW／CSV 完整性、視窗檢查與取消保護。
@@ -48,10 +49,10 @@ GPU 策略操作需要管理員權限，並會重啟顯示裝置，畫面可能�
 
 ### 從 Releases 安裝
 
-從 [GitHub Releases](https://github.com/LiuTouo/FrameAnchor/releases) 下載最新版本。提供兩種發布形式：
+從 [GitHub Releases](https://github.com/LiuTouo/PaceDock/releases) 下載最新版本。提供兩種發布形式：
 
-- **NSIS 安裝程式**（`FrameAnchor_X.Y.Z_x64-setup.exe`）：標準安裝模式。支援自動更新（透過 Tauri updater plugin）。
-- **可攜版**（`FrameAnchor_X.Y.Z_x64-portable.zip`）：解壓縮至任意目錄即可執行。啟動時與手動操作均支援線上檢查更新，可自動下載新版、詢問後替換執行檔並重啟。
+- **NSIS 安裝程式**（`PaceDock_X.Y.Z_x64-setup.exe`）：標準安裝模式。支援自動更新（透過 Tauri updater plugin）。
+- **可攜版**（`PaceDock_X.Y.Z_x64-portable.zip`）：解壓縮至任意目錄即可執行。啟動時與手動操作均支援線上檢查更新，可自動下載新版、詢問後替換執行檔並重啟。
 
 每個發布資產均附帶 SHA256 校驗檔（`.sha256`）。
 
@@ -189,13 +190,13 @@ npm run tauri signer generate -- -w src-tauri
 
    推送標籤後，GitHub Actions 會自動執行版本驗證、簽署金鑰驗證、前端型別檢查、Rust 測試，然後建置以下資產：
 
-   - NSIS 安裝程式（`FrameAnchor_X.Y.Z_x64-setup.exe`）與 `.sha256`
-   - 可攜版 ZIP（`FrameAnchor_X.Y.Z_x64-portable.zip`）與 `.sha256`
+   - NSIS 安裝程式（`PaceDock_X.Y.Z_x64-setup.exe`）與 `.sha256`
+   - 可攜版 ZIP（`PaceDock_X.Y.Z_x64-portable.zip`）與 `.sha256`
    - updater 用 `latest.json` 與簽署檔案
 
 4. **下載發布版本**
 
-   建置完成後，前往 [GitHub Releases](https://github.com/LiuTouo/FrameAnchor/releases) 下載所需資產。
+   建置完成後，前往 [GitHub Releases](https://github.com/LiuTouo/PaceDock/releases) 下載所需資產。
 
 ### 注意事項
 

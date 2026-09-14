@@ -81,7 +81,7 @@
     }
   }
 
-  const dataDir = '%APPDATA%\\FrameAnchor';
+  const dataDir = '%APPDATA%\\PaceDock';
 </script>
 
 {#if $settings}
@@ -151,7 +151,7 @@
     <div class="section">
       <div class="opt row">
         <span class="hint">
-          FrameAnchor · {$t('settings.version')} {$updateState?.currentVersion ?? '0.0.0'}
+          PaceDock · {$t('settings.version')} {$updateState?.currentVersion ?? '0.0.0'}
           {#if $isPortable}
             <span class="tag">{$t('settings.portableBuild')}</span>
           {/if}

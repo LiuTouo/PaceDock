@@ -1,7 +1,7 @@
 //! 高精度計時器：以 ntdll `NtSetTimerResolution` 常駐請求 0.5 ms timer resolution。
 //!
 //! 誠實限制（設定頁 hint 須如實告知）：
-//! - Windows 10 2004+ 起請求為 per-process：FrameAnchor 的請求只保證自身 timer
+//! - Windows 10 2004+ 起請求為 per-process：PaceDock 的請求只保證自身 timer
 //!   精度。
 //! - 全域生效需 `GlobalTimerResolutionRequests=1`（設定頁可寫入）。
 //! - Win11 起背景/隱藏視窗行程的請求會被節流；本行程持有請求時對「自己」施加
@@ -230,7 +230,7 @@ unsafe extern "system" fn power_callback(
 // ── 全域請求政策（登錄值）────────────────────────────────────────────────
 //
 // Win11 24H2 起 timer resolution 全面 per-process；`GlobalTimerResolutionRequests=1`
-// 恢復舊全域語意（FrameAnchor 的請求才會抬升全系統 tick）。此值本身只是政策門、
+// 恢復舊全域語意（PaceDock 的請求才會抬升全系統 tick）。此值本身只是政策門、
 // 不是計時請求：程式關閉後請求隨行程消失、tick 自動回落，登錄值留著也無害。
 
 const GLOBAL_TIMER_SUBKEY: &str = "SYSTEM\\CurrentControlSet\\Control\\Session Manager\\kernel";
@@ -331,7 +331,7 @@ impl Drop for OwnedKey {
 // 對選定遊戲行程清掉 IGNORE_TIMER_RESOLUTION = 其解析不被前景狀態節流。
 // 持久化：名單以小寫 exe 檔名為鍵存於 config.json（settings.timerExemptPrograms），
 // 本模組內 PROGRAMS 為執行時鏡像；遊戲重啟（新 PID）由輪詢自動重套，
-// FrameAnchor 重啟後從 config 灌回續用；正常退出時批次還原 runtime 施加。
+// PaceDock 重啟後從 config 灌回續用；正常退出時批次還原 runtime 施加。
 
 /// 持久化豁免名單的執行時鏡像（小寫 exe 檔名；事實源為 config.json）
 static PROGRAMS: RwLock<Vec<String>> = RwLock::new(Vec::new());
@@ -433,7 +433,7 @@ pub fn list_exempts() -> Vec<TimerExemptEntry> {
 /// 執行中同名行程施加/還原。之後由輪詢對新啟動的同名行程自動重套。
 pub fn set_exempt_program(exe_name: &str, enabled: bool) -> Result<(), String> {
     let exe = exe_name.to_lowercase();
-    if enabled && (exe == "frameanchor.exe" || crate::benchmark::capture::is_blacklisted(&exe)) {
+    if enabled && (exe == "pacedock.exe" || crate::benchmark::capture::is_blacklisted(&exe)) {
         return Err(codes::TIMER_EXEMPT_BLOCKED.to_string());
     }
     // 先同步名單再動手：輪詢 thread 看到一致狀態

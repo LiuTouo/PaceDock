@@ -63,7 +63,7 @@ pub mod codes {
     /// 失敗關閉（fail closed）：終止 session 且無可套用結果。
     pub const BENCHMARK_ENV_UNSTABLE: &str = "BENCHMARK_ENV_UNSTABLE";
     // ── Benchmark 視窗配置（強制視窗模式 + compact 視窗/還原）──
-    /// workload 視窗與 FrameAnchor compact 視窗在 rcWork（工作區，排除工作列）內
+    /// workload 視窗與 PaceDock compact 視窗在 rcWork（工作區，排除工作列）內
     /// 無法不重疊（空間不足）。不自動縮放 workload，立即失敗關閉。
     pub const BENCHMARK_WINDOW_SPACE_INSUFFICIENT: &str = "BENCHMARK_WINDOW_SPACE_INSUFFICIENT";
     /// workload 視窗完整性（前景/非最小化/預期位置/topmost/可見/遮擋）在重試上限內

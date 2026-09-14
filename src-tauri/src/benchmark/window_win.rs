@@ -311,7 +311,7 @@ const OCCLUSION_SCAN_MAX: usize = 64;
 
 /// 收集 z-order 位於 `hwnd` 之上（GW_HWNDPREV 鏈）的 top-level window 遮擋觀測值。
 /// workload 為 HWND_TOPMOST 時，其上方只會有其他 topmost（或更高）視窗；普通視窗
-/// 與 FrameAnchor compact 視窗都在下方，不會被納入。
+/// 與 PaceDock compact 視窗都在下方，不會被納入。
 fn collect_above_windows(hwnd: HWND) -> Vec<OccluderSnapshot> {
     let mut out = Vec::new();
     unsafe {

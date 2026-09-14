@@ -1,6 +1,12 @@
 //! 短時間 ETW ISR 實測。只歸屬到驅動模組，不把 affinity 設定當成觀測值。
 //! 格式依據：Microsoft Learn ETW ISR / Image_Load（64-bit Windows）。
-use std::{collections::BTreeMap, mem::size_of, path::PathBuf, sync::Arc, time::Duration};
+use std::{
+    collections::{BTreeMap, BTreeSet},
+    mem::size_of,
+    path::PathBuf,
+    sync::Arc,
+    time::Duration,
+};
 
 use serde::Serialize;
 use windows::core::{w, GUID, PCWSTR, PWSTR};
@@ -18,6 +24,13 @@ use windows::Win32::System::Threading::{GetCurrentProcess, OpenProcessToken};
 const PERF_INFO: GUID = GUID::from_u128(0xce1dbfb4_137e_4da6_87b0_3f59aa102cbc);
 const IMAGE: GUID = GUID::from_u128(0x2cb15d1d_5fc1_11d2_abe1_00a0c911f518);
 const SAMPLE_SECS: u64 = 3;
+/// PerfInfo DPC 事件 opcode：66 = DPC 開始、68 = DPC 結束（67 是 ISR）。
+/// 與 ISR 的 50/67 同源（PerfView KernelTraceEventParser 對照）；
+/// live 解碼如有出入，調整這兩個常數即可。
+const DPC_START_OPCODE: u8 = 66;
+const DPC_STOP_OPCODE: u8 = 68;
+/// 落點驗證門檻：目標驅動 ISR+DPC 事件落在釘選 LP 的最低佔比
+const ON_PINNED_PASS_RATIO: f64 = 0.95;
 
 #[derive(Debug, Serialize)]
 #[serde(rename_all = "camelCase")]
@@ -38,6 +51,48 @@ pub struct InterruptSample {
     /// dxgkrnl 是所有顯示配接器共用層，必須分開顯示，不能歸屬到選定 GPU。
     graphics_kernel_cpus: Vec<InterruptCpu>,
     events_lost: u32,
+}
+
+/// 套用後落點驗證結果：目標驅動（含 dxgkrnl）的 ISR+DPC 事件
+/// 實際落在釘選 LP 的佔比。
+#[derive(Debug, Serialize)]
+#[serde(rename_all = "camelCase")]
+pub struct InterruptVerification {
+    /// "passed" | "failed" | "inconclusive"
+    verdict: String,
+    pinned_events: u64,
+    total_events: u64,
+    on_pinned_pct: f64,
+    events_lost: u32,
+    sample_secs: u64,
+}
+
+/// 全系統 DPC 大戶（按總耗時排序）
+#[derive(Debug, Serialize)]
+#[serde(rename_all = "camelCase")]
+pub struct DpcOffender {
+    driver: String,
+    count: u64,
+    total_duration_ms: f64,
+    max_duration_ms: f64,
+}
+
+/// 全系統 DPC 掃描結果
+#[derive(Debug, Serialize)]
+#[serde(rename_all = "camelCase")]
+pub struct DpcScan {
+    offenders: Vec<DpcOffender>,
+    events_lost: u32,
+    sampled_at: String,
+    sample_secs: u64,
+}
+
+/// 單一 (routine, lp) 的 DPC 統計
+#[derive(Debug, Default, Clone, Copy)]
+struct DpcStat {
+    count: u64,
+    total_dur: u64,
+    max_dur: u64,
 }
 
 #[tauri::command]
@@ -246,8 +301,8 @@ fn trace_error(code: u32) -> String {
 fn capture(driver: &str) -> Result<(Capture, u32), String> {
     let _privilege = ProfilePrivilege::enable()?;
     let id = uuid::Uuid::new_v4();
-    let name = wide(&format!("FrameAnchor-ISR-{id}"));
-    let path = std::env::temp_dir().join(format!("FrameAnchor-ISR-{id}.etl"));
+    let name = wide(&format!("PaceDock-ISR-{id}"));
+    let path = std::env::temp_dir().join(format!("PaceDock-ISR-{id}.etl"));
     let path_w = wide(&path.to_string_lossy());
     let mut properties = Box::new(Properties {
         header: Default::default(),
@@ -269,7 +324,7 @@ fn capture(driver: &str) -> Result<(Capture, u32), String> {
     h.MaximumBuffers = 128;
     h.MaximumFileSize = 32;
     h.LogFileMode = EVENT_TRACE_SYSTEM_LOGGER_MODE | EVENT_TRACE_FILE_MODE_SEQUENTIAL;
-    h.EnableFlags = EVENT_TRACE_FLAG_INTERRUPT | EVENT_TRACE_FLAG_IMAGE_LOAD;
+    h.EnableFlags = EVENT_TRACE_FLAG_INTERRUPT | EVENT_TRACE_FLAG_DPC | EVENT_TRACE_FLAG_IMAGE_LOAD;
     h.LoggerNameOffset = std::mem::offset_of!(Properties, name) as u32;
     h.LogFileNameOffset = std::mem::offset_of!(Properties, path) as u32;
     let mut session = TraceSession {
@@ -325,8 +380,16 @@ fn capture(driver: &str) -> Result<(Capture, u32), String> {
 struct Capture {
     driver: String,
     driver_seen: bool,
-    modules: Vec<(u64, u64, bool)>,
+    /// Image_Load 解析出的所有 .sys 模組（base, size, 檔名）；
+    /// 驅動與 dxgkrnl 供 ISR 歸屬，其餘供 DPC 大戶歸屬。
+    modules: Vec<(u64, u64, String)>,
+    /// (routine, lp) → ISR 次數
     events: BTreeMap<(u64, u16), u64>,
+    /// (routine, lp) → DPC 統計（配對 start/stop 後）
+    dpc: BTreeMap<(u64, u16), DpcStat>,
+    /// lp → (routine, start timestamp)：進行中的 DPC（per-LP DPC queue 序列化，
+    /// 同 LP 不會並行兩個 DPC，可用 lp 配對 start/stop）
+    open_dpc: BTreeMap<u16, (u64, u64)>,
     invalid: bool,
 }
 impl Capture {
@@ -343,6 +406,7 @@ impl Capture {
         version: u8,
         pointer_size: usize,
         lp: u16,
+        ts: u64,
         bytes: &[u8],
     ) {
         // PerfView KernelTraceEventParser 將 50（MSI）與 67 都解成 ISRTraceData。
@@ -362,6 +426,22 @@ impl Capture {
             } else {
                 self.invalid = true;
             }
+        } else if provider == PERF_INFO && opcode == DPC_START_OPCODE {
+            // DPC 開始：InitialTime(8) + Routine(pointer)。
+            if let Some(routine) = read_pointer(bytes, 8, pointer_size) {
+                self.open_dpc.insert(lp, (routine, ts));
+            } else {
+                self.invalid = true;
+            }
+        } else if provider == PERF_INFO && opcode == DPC_STOP_OPCODE {
+            // DPC 結束：以 lp 配對進行中的 start；duration = ts 差（100ns 單位）。
+            if let Some((routine, start)) = self.open_dpc.remove(&lp) {
+                let dur = ts.saturating_sub(start);
+                let stat = self.dpc.entry((routine, lp)).or_default();
+                stat.count += 1;
+                stat.total_dur += dur;
+                stat.max_dur = stat.max_dur.max(dur);
+            }
         } else if provider == IMAGE && matches!(opcode, 3 | 4 | 10) {
             // Image_Load v2/v3: 3 pointers + 8 DWORDs，後接 UTF-16 FileName。
             if !matches!(version, 2 | 3) {
@@ -377,9 +457,6 @@ impl Capture {
                 .take_while(|&c| c != 0)
                 .collect();
             let name = filename(&String::from_utf16_lossy(&name));
-            if name != self.driver && name != "dxgkrnl.sys" {
-                return;
-            }
             if let (Some(base), Some(size)) = (
                 read_pointer(bytes, 0, pointer_size),
                 read_pointer(bytes, pointer_size, pointer_size),
@@ -390,7 +467,7 @@ impl Capture {
                 if name == self.driver {
                     self.driver_seen = true;
                 }
-                let module = (base, size, name == "dxgkrnl.sys");
+                let module = (base, size, name);
                 if !self.modules.contains(&module) {
                     self.modules.push(module);
                 }
@@ -404,11 +481,16 @@ impl Capture {
             }
         }
     }
+    /// ISR 事件按 LP 聚合（`kernel=true` 只計 dxgkrnl，否則只計目標驅動）
     fn counts(&self, kernel: bool) -> Vec<InterruptCpu> {
         let mut counts = BTreeMap::<u16, u64>::new();
         for (&(routine, lp), &count) in &self.events {
-            if self.modules.iter().any(|&(base, size, is_kernel)| {
-                is_kernel == kernel && routine >= base && routine - base < size
+            if self.module_name(routine).is_some_and(|name| {
+                if kernel {
+                    name == "dxgkrnl.sys"
+                } else {
+                    name == self.driver
+                }
             }) {
                 *counts.entry(lp).or_default() += count;
             }
@@ -417,6 +499,82 @@ impl Capture {
             .into_iter()
             .map(|(lp, count)| InterruptCpu { lp, count })
             .collect()
+    }
+    /// DPC 事件按 LP 聚合（同 counts 語意）
+    fn dpc_counts(&self, kernel: bool) -> BTreeMap<u16, u64> {
+        let mut counts = BTreeMap::<u16, u64>::new();
+        for (&(routine, lp), stat) in &self.dpc {
+            if self.module_name(routine).is_some_and(|name| {
+                if kernel {
+                    name == "dxgkrnl.sys"
+                } else {
+                    name == self.driver
+                }
+            }) {
+                *counts.entry(lp).or_default() += stat.count;
+            }
+        }
+        counts
+    }
+    /// 位址 → 模組檔名（落在任何已知 .sys 模組範圍內）
+    fn module_name(&self, address: u64) -> Option<&str> {
+        self.modules
+            .iter()
+            .find(|&&(base, size, _)| address >= base && address - base < size)
+            .map(|(_, _, name)| name.as_str())
+    }
+    /// 目標驅動（含 dxgkrnl）ISR+DPC 事件中，落在釘選 LP 的（命中, 總數）
+    fn verification(&self, expected_lps: &[u16]) -> (u64, u64) {
+        let pinned: BTreeSet<u16> = expected_lps.iter().copied().collect();
+        let mut total = 0u64;
+        let mut hit = 0u64;
+        let mut add = |lp: &u16, count: &u64| {
+            total += count;
+            if pinned.contains(lp) {
+                hit += count;
+            }
+        };
+        for c in self.counts(false) {
+            add(&c.lp, &c.count);
+        }
+        for c in self.counts(true) {
+            add(&c.lp, &c.count);
+        }
+        for (lp, count) in self.dpc_counts(false) {
+            add(&lp, &count);
+        }
+        for (lp, count) in self.dpc_counts(true) {
+            add(&lp, &count);
+        }
+        (hit, total)
+    }
+    /// 全系統 DPC 大戶（按總耗時降序；未知模組歸 "unknown"）
+    fn offenders(&self, top_n: usize) -> Vec<DpcOffender> {
+        let mut per_driver: BTreeMap<String, (u64, u64, u64)> = BTreeMap::new();
+        for (&(routine, _lp), stat) in &self.dpc {
+            let name = self.module_name(routine).unwrap_or("unknown").to_string();
+            let e = per_driver.entry(name).or_default();
+            e.0 += stat.count;
+            e.1 += stat.total_dur;
+            e.2 = e.2.max(stat.max_dur);
+        }
+        let mut out: Vec<DpcOffender> = per_driver
+            .into_iter()
+            .map(|(driver, (count, total_dur, max_dur))| DpcOffender {
+                driver,
+                count,
+                total_duration_ms: total_dur as f64 / 10_000.0,
+                max_duration_ms: max_dur as f64 / 10_000.0,
+            })
+            .collect();
+        out.sort_by(|a, b| {
+            b.total_duration_ms
+                .partial_cmp(&a.total_duration_ms)
+                .unwrap_or(std::cmp::Ordering::Equal)
+                .then_with(|| b.count.cmp(&a.count))
+        });
+        out.truncate(top_n);
+        out
     }
 }
 fn read_pointer(bytes: &[u8], offset: usize, size: usize) -> Option<u64> {
@@ -457,12 +615,98 @@ unsafe extern "system" fn event_callback(record: *mut EVENT_RECORD) {
             record.EventHeader.EventDescriptor.Version,
             size,
             lp,
+            record.EventHeader.TimeStamp as u64,
             std::slice::from_raw_parts(record.UserData.cast(), record.UserDataLength as usize),
         );
     }));
     if result.is_err() {
         data.invalid = true;
     }
+}
+
+/// 套用後落點驗證：取樣 3 秒，檢查目標驅動（含 dxgkrnl）的 ISR+DPC
+/// 事件是否 ≥95% 落在釘選 LP。機制驗證（registry 回讀之外的實測證據）。
+#[tauri::command]
+pub async fn verify_interrupt_affinity(
+    state: tauri::State<'_, Arc<crate::AppState>>,
+    instance_id: String,
+    expected_lps: Vec<u16>,
+) -> Result<InterruptVerification, String> {
+    // 與 benchmark / 套用共用排他權（同 sample_gpu_interrupts）
+    let guard = state.benchmark.reserve_mutation()?;
+    let backend = state.benchmark.backend.clone();
+    if state.topology.processor_groups > 1 {
+        return Err("GPU_INTERRUPTS_GROUPS".into());
+    }
+    tauri::async_runtime::spawn_blocking(move || {
+        let _guard = guard;
+        let devices = backend
+            .enumerate_present_adapters()
+            .map_err(|e| e.code().to_string())?;
+        if !devices.iter().any(|d| d.instance_id == instance_id) {
+            return Err("GPU_NOT_FOUND".into());
+        }
+        let driver = device_driver(&instance_id)?;
+        let (data, lost) = capture(&driver)?;
+        if !data.driver_seen {
+            return Err("GPU_INTERRUPTS_DRIVER_UNRESOLVED".into());
+        }
+        let (pinned, total) = data.verification(&expected_lps);
+        let pct = if total > 0 {
+            pinned as f64 / total as f64
+        } else {
+            0.0
+        };
+        let verdict = if total == 0 {
+            "inconclusive"
+        } else if pct >= ON_PINNED_PASS_RATIO {
+            "passed"
+        } else {
+            "failed"
+        };
+        Ok(InterruptVerification {
+            verdict: verdict.into(),
+            pinned_events: pinned,
+            total_events: total,
+            on_pinned_pct: pct * 100.0,
+            events_lost: lost,
+            sample_secs: SAMPLE_SECS,
+        })
+    })
+    .await
+    .map_err(|e| {
+        log::error!("ISR verify worker: {e}");
+        "GPU_INTERRUPTS_FAILED".to_string()
+    })?
+}
+
+/// 全系統 DPC 大戶掃描（3 秒取樣；按總耗時排序，找出干擾幀格的裝置驅動）
+#[tauri::command]
+pub async fn scan_dpc_offenders(
+    state: tauri::State<'_, Arc<crate::AppState>>,
+    top_n: Option<u8>,
+) -> Result<DpcScan, String> {
+    let guard = state.benchmark.reserve_mutation()?;
+    if state.topology.processor_groups > 1 {
+        return Err("GPU_INTERRUPTS_GROUPS".into());
+    }
+    tauri::async_runtime::spawn_blocking(move || {
+        let _guard = guard;
+        // 掃全系統，不歸屬到特定 GPU 驅動（Image_Load 仍記錄所有 .sys 模組）
+        let (data, lost) = capture("")?;
+        let top_n = top_n.unwrap_or(5).clamp(1, 20) as usize;
+        Ok(DpcScan {
+            offenders: data.offenders(top_n),
+            events_lost: lost,
+            sampled_at: chrono::Utc::now().to_rfc3339(),
+            sample_secs: SAMPLE_SECS,
+        })
+    })
+    .await
+    .map_err(|e| {
+        log::error!("DPC scan worker: {e}");
+        "GPU_INTERRUPTS_FAILED".to_string()
+    })?
 }
 
 #[cfg(test)]
@@ -496,13 +740,21 @@ mod tests {
         for c in name.encode_utf16().chain(Some(0)) {
             bytes.extend(c.to_le_bytes());
         }
-        data.event(IMAGE, 3, 2, 8, 0, &bytes);
+        data.event(IMAGE, 3, 2, 8, 0, 0, &bytes);
     }
     fn isr(data: &mut Capture, address: u64, lp: u16, claimed: u8) {
         let mut bytes = vec![0; 8];
         bytes.extend(address.to_le_bytes());
         bytes.push(claimed);
-        data.event(PERF_INFO, 67, 2, 8, lp, &bytes);
+        data.event(PERF_INFO, 67, 2, 8, lp, 0, &bytes);
+    }
+    fn dpc_start(data: &mut Capture, address: u64, lp: u16, ts: u64) {
+        let mut bytes = vec![0u8; 8];
+        bytes.extend(address.to_le_bytes());
+        data.event(PERF_INFO, DPC_START_OPCODE, 2, 8, lp, ts, &bytes);
+    }
+    fn dpc_stop(data: &mut Capture, lp: u16, ts: u64) {
+        data.event(PERF_INFO, DPC_STOP_OPCODE, 2, 8, lp, ts, &[0u8; 16]);
     }
     #[test]
     fn resolves_rundown_after_events_and_separates_shared_kernel() {
@@ -525,11 +777,11 @@ mod tests {
     #[test]
     fn malformed_isr_and_module_unload_invalidate_sample() {
         let mut data = Capture::new("gpu.sys");
-        data.event(PERF_INFO, 67, 2, 8, 0, &[0; 8]);
+        data.event(PERF_INFO, 67, 2, 8, 0, 0, &[0; 8]);
         assert!(data.invalid);
         let mut data = Capture::new("gpu.sys");
         image(&mut data, "gpu.sys", 0x1000);
-        data.event(IMAGE, 2, 2, 8, 0, &0x1000u64.to_le_bytes());
+        data.event(IMAGE, 2, 2, 8, 0, 0, &0x1000u64.to_le_bytes());
         assert!(data.invalid);
     }
     #[test]
@@ -548,12 +800,64 @@ mod tests {
         let mut bytes = vec![0; 8];
         bytes.extend(0x1010u32.to_le_bytes());
         bytes.push(1);
-        data.event(PERF_INFO, 50, 2, 4, 5, &bytes);
-        data.event(PERF_INFO, 68, 2, 4, 6, &bytes); // DPC 不列為 ISR。
+        data.event(PERF_INFO, 50, 2, 4, 5, 0, &bytes);
+        data.event(PERF_INFO, DPC_STOP_OPCODE, 2, 4, 6, 0, &bytes); // DPC 不列為 ISR。
         assert_eq!(data.counts(false).len(), 1);
         assert_eq!(
             (data.counts(false)[0].lp, data.counts(false)[0].count),
             (5, 1)
         );
+    }
+
+    #[test]
+    fn dpc_start_stop_pairs_accumulate_duration_per_lp() {
+        let mut data = Capture::new("gpu.sys");
+        image(&mut data, "gpu.sys", 0x1000);
+        // LP 7：兩個 DPC（2ms、6ms）；LP 3：一個 1ms 的未知模組 DPC
+        dpc_start(&mut data, 0x1010, 7, 1_000_000);
+        dpc_stop(&mut data, 7, 1_000_000 + 20_000); // 2ms
+        dpc_start(&mut data, 0x1010, 7, 2_000_000);
+        dpc_stop(&mut data, 7, 2_000_000 + 60_000); // 6ms
+        dpc_start(&mut data, 0x9010, 3, 3_000_000);
+        dpc_stop(&mut data, 3, 3_000_000 + 10_000); // 1ms
+        // 無配對的 stop 不計、不 invalid
+        dpc_stop(&mut data, 9, 5_000_000);
+        assert!(!data.invalid);
+        // 目標驅動 DPC 落在 LP 7，共 8ms
+        let counts = data.dpc_counts(false);
+        assert_eq!(counts.get(&7), Some(&2));
+        assert_eq!(counts.get(&3), None);
+        let offenders = data.offenders(10);
+        assert_eq!(offenders[0].driver, "gpu.sys");
+        assert_eq!(offenders[0].count, 2);
+        assert!((offenders[0].total_duration_ms - 8.0).abs() < 1e-9);
+        assert!((offenders[0].max_duration_ms - 6.0).abs() < 1e-9);
+        assert!(offenders.iter().any(|o| o.driver != "gpu.sys"));
+    }
+
+    #[test]
+    fn verification_counts_driver_and_kernel_events_on_pinned_lps() {
+        let mut data = Capture::new("gpu.sys");
+        image(&mut data, "gpu.sys", 0x1000);
+        image(&mut data, "dxgkrnl.sys", 0x2000);
+        // ISR：目標驅動 LP7×2、LP2×1；dxgkrnl LP3×1
+        isr(&mut data, 0x1010, 7, 1);
+        isr(&mut data, 0x1010, 7, 1);
+        isr(&mut data, 0x1010, 2, 1);
+        isr(&mut data, 0x2010, 3, 1);
+        // DPC：目標驅動 LP7×2
+        dpc_start(&mut data, 0x1010, 7, 0);
+        dpc_stop(&mut data, 7, 20_000);
+        dpc_start(&mut data, 0x1010, 7, 30_000);
+        dpc_stop(&mut data, 7, 40_000);
+        // 總事件 6，落在 LP7 = 2+2 = 4
+        let (hit, total) = data.verification(&[7]);
+        assert_eq!((hit, total), (4, 6));
+        // 全部釘選 → 100%
+        let (hit, total) = data.verification(&[2, 3, 7]);
+        assert_eq!((hit, total), (6, 6));
+        // 無事件 → (0,0)，由呼叫端判 inconclusive
+        let empty = Capture::new("gpu.sys");
+        assert_eq!(empty.verification(&[7]), (0, 0));
     }
 }

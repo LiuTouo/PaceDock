@@ -118,7 +118,7 @@ mod tests {
 
     fn temp_dir(name: &str) -> PathBuf {
         let dir = std::env::temp_dir().join(format!(
-            "frameanchor_assets_{}_{}",
+            "pacedock_assets_{}_{}",
             std::process::id(),
             name
         ));

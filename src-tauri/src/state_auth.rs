@@ -1,9 +1,9 @@
 //! 特權狀態檔的完整性認證。
 //!
-//! `%APPDATA%\FrameAnchor` 下的狀態（還原日誌、還原記錄、session 結果）可被
+//! `%APPDATA%\PaceDock` 下的狀態（還原日誌、還原記錄、session 結果）可被
 //! 同帳戶 medium-integrity 程序任意竄改，卻會驅動提升權限端的 HKLM 寫入與
 //! 裝置重啟。此處以 HMAC-SHA256 認證檔案內容：HMAC key 存放在僅
-//! Administrators/SYSTEM 可讀的目錄（`%PROGRAMDATA%\FrameAnchor`），攻擊者
+//! Administrators/SYSTEM 可讀的目錄（`%PROGRAMDATA%\PaceDock`），攻擊者
 //! 無法為竄改後的內容重算 MAC；驗證失敗一律 fail closed。
 //!
 //! 格式：內容檔旁另存 `<file>.mac`（hex）。兩者同時竄改無效（無 key）。
@@ -28,7 +28,7 @@ fn key_dir() -> PathBuf {
     let program_data = known_program_data().unwrap_or_else(|| {
         PathBuf::from(std::env::var_os("ProgramData").unwrap_or_default())
     });
-    program_data.join("FrameAnchor")
+    program_data.join("PaceDock")
 }
 
 fn known_program_data() -> Option<PathBuf> {
@@ -145,7 +145,7 @@ mod tests {
     use super::*;
 
     fn temp_path(name: &str) -> PathBuf {
-        let dir = std::env::temp_dir().join(format!("frameanchor_state_auth_{}", std::process::id()));
+        let dir = std::env::temp_dir().join(format!("pacedock_state_auth_{}", std::process::id()));
         std::fs::create_dir_all(&dir).unwrap();
         dir.join(format!("{name}_{:?}", std::thread::current().id()))
     }

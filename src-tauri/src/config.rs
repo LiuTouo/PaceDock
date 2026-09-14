@@ -1,4 +1,4 @@
-//! 設定持久化（PLAN §7.8）：%APPDATA%\FrameAnchor\config.json，原子寫入 + 壞檔備份。
+//! 設定持久化（PLAN §7.8）：%APPDATA%\PaceDock\config.json，原子寫入 + 壞檔備份。
 
 use std::os::windows::ffi::OsStrExt;
 use std::path::{Path, PathBuf};
@@ -20,7 +20,7 @@ pub fn config_dir() -> PathBuf {
                 .and_then(|p| p.parent().map(|p| p.to_path_buf()))
                 .unwrap_or_else(|| PathBuf::from("."))
         });
-    base.join("FrameAnchor")
+    base.join("PaceDock")
 }
 
 pub fn config_path() -> PathBuf {
@@ -178,7 +178,7 @@ mod tests {
     use crate::model::Rule;
 
     fn temp_path(name: &str) -> PathBuf {
-        std::env::temp_dir().join(format!("frameanchor_test_{}_{}", std::process::id(), name))
+        std::env::temp_dir().join(format!("pacedock_test_{}_{}", std::process::id(), name))
     }
 
     #[test]
@@ -312,7 +312,7 @@ mod tests {
         atomic_write(&path, "new").unwrap();
         assert_eq!(std::fs::read_to_string(&path).unwrap(), "new");
         let prefix = format!(
-            ".frameanchor_test_{}_atomic_replace.json.",
+            ".pacedock_test_{}_atomic_replace.json.",
             std::process::id()
         );
         let leftover = std::fs::read_dir(std::env::temp_dir())
@@ -353,7 +353,7 @@ mod tests {
         let rules = serde_json::to_value(&config.rules).unwrap();
         config.settings.language = "en".into();
         let path = std::env::temp_dir().join(format!(
-            "frameanchor_preserve_rules_{}.json",
+            "pacedock_preserve_rules_{}.json",
             uuid::Uuid::new_v4()
         ));
         save_to(&path, &config).unwrap();

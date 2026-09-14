@@ -1,4 +1,4 @@
-//! 基準測試 session 儲存：`%APPDATA%\FrameAnchor\benchmarks\<uuid>`。
+//! 基準測試 session 儲存：`%APPDATA%\PaceDock\benchmarks\<uuid>`。
 //! session.json 原子寫入；CSV 目錄 path helper；歷史 list/get/delete 與
 //! 嚴謹路徑驗證（只接受合法 UUID，杜絕穿越）；總位元組數回報。
 //! 永不自動刪除歷史。
@@ -186,7 +186,7 @@ mod tests {
 
     fn temp_root(name: &str) -> PathBuf {
         let dir = std::env::temp_dir().join(format!(
-            "frameanchor_bench_test_{}_{}",
+            "pacedock_bench_test_{}_{}",
             std::process::id(),
             name
         ));

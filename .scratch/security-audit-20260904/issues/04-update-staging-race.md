@@ -6,10 +6,10 @@
 
 ## 實作
 
-- staging 目錄改一次性隨機名稱 `%TEMP%\frameanchor_update_<uuid>`,以
+- staging 目錄改一次性隨機名稱 `%TEMP%\pacedock_update_<uuid>`,以
   `D:P(A;;FA;;;BA)(A;;FA;;;SY)` 保護型 DACL 建立(僅 Administrators/SYSTEM 可寫,
   同帳戶 medium-integrity 程序無 ACE 可用;已以受限 token 寫入測試實證被拒)。
-- 舊版固定名稱 `%TEMP%\frameanchor_update` 於每次更新時盡力清除(升級殘留)。
+- 舊版固定名稱 `%TEMP%\pacedock_update` 於每次更新時盡力清除(升級殘留)。
 - 解壓檔案全部改 exclusive create(`create_new`),UUID 撞名殘留時 fail closed。
 - helper 腳本路徑/日誌改由 staged exe 路徑反推;腳本成功與 rollback 兩條結束路徑
   都會清掉 staging 目錄。
@@ -24,7 +24,7 @@
 
 ## 問題
 
-portable updater 驗證 ZIP 後把 `FrameAnchor_new.exe`、resources、`update.ps1` 寫到**固定** `%TEMP%\frameanchor_update`,elevated 端之後**依路徑**重開腳本並移動/啟動 staged PE。同帳戶 medium-integrity 程序可在驗證後置換,取得 administrator code execution。
+portable updater 驗證 ZIP 後把 `PaceDock_new.exe`、resources、`update.ps1` 寫到**固定** `%TEMP%\pacedock_update`,elevated 端之後**依路徑**重開腳本並移動/啟動 staged PE。同帳戶 medium-integrity 程序可在驗證後置換,取得 administrator code execution。
 
 ## 修法
 

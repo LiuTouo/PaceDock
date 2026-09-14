@@ -90,6 +90,32 @@ impl CsvCapture {
 pub const COL_TIME_IN_SECONDS: &str = "TimeInSeconds";
 /// PresentMon CSV 的 QPC 刻度時間欄位名（單調、非秒）。
 pub const COL_QPC_TIME: &str = "QpcTime";
+/// PresentMon CSV 的顯示變更間隔欄位名（毫秒；實際螢幕更新節奏）。
+pub const COL_MS_BETWEEN_DISPLAY_CHANGE: &str = "msBetweenDisplayChange";
+/// PresentMon CSV 的 present→顯示延遲欄位名（毫秒；未顯示的幀為 NA）。
+pub const COL_MS_UNTIL_DISPLAYED: &str = "msUntilDisplayed";
+/// PresentMon CSV 的丟幀旗標欄位名（1 = 該 present 未顯示）。
+pub const COL_DROPPED: &str = "Dropped";
+
+/// 顯示端序列：display-change 間隔、present→display 延遲與丟幀計數。
+/// 序列皆已過濾（NA/非有限剔除）；`presents` 為有效 frametime 列數
+/// （丟幀分母）；`dropped_seen` 記錄 CSV 是否含 `Dropped` 欄。
+#[derive(Debug, Clone, Default)]
+pub struct DisplaySeries {
+    pub intervals: Vec<f64>,
+    pub latencies: Vec<f64>,
+    pub dropped_count: u32,
+    pub dropped_seen: bool,
+    pub presents: u32,
+}
+
+/// 單次解析的完整序列：frametime + capture 時間 + 顯示端序列。
+#[derive(Debug, Clone, Default)]
+pub struct FullSeries {
+    pub frames: Vec<f64>,
+    pub capture: CsvCapture,
+    pub display: DisplaySeries,
+}
 
 /// 解析 PresentMon CSV，同時擷取 capture 時間（供完整性驗證）。
 /// 與 [`parse_presentmon_csv`] 相同的 frametime 語意（跳過 NA/非有限/非正值）；
@@ -191,6 +217,152 @@ pub fn parse_presentmon_csv_full(text: &str) -> Result<CsvCapture, String> {
             last_time_secs: last_secs,
             monotonic,
         }),
+    }
+}
+
+/// 解析 PresentMon CSV 的完整序列：frametime、capture 時間、顯示端序列
+/// （display-change 間隔、present→display 延遲、丟幀）。
+/// frametime/時間語意與 [`parse_presentmon_csv_full`] 完全相同（含相同錯誤條件）；
+/// 顯示端欄位缺失時，`DisplaySeries` 對應序列為空、`dropped_seen=false`
+/// （不影響主體有效性）。延遲取 finite ≥0；display-change 間隔取 finite >0。
+pub fn parse_presentmon_series(text: &str) -> Result<FullSeries, String> {
+    let mut idxs = ColumnIndexes::default();
+    let mut out = FullSeries::default();
+    out.capture.monotonic = true; // 無時間欄位/無資料 = 不視為不單調（與既有語意一致）
+    let mut saw_data = false;
+    let mut prev_time: Option<f64> = None;
+
+    for (lineno, raw) in text.lines().enumerate() {
+        let line = raw.trim();
+        if line.is_empty() {
+            continue;
+        }
+        let fields = split_csv_line(line);
+        if !idxs.found_header {
+            idxs.locate(&fields); // header 行本身不是資料
+            continue;
+        }
+        // 時間欄位（優先秒數、其次 QPC）的單調性與範圍。
+        let time_val: Option<f64> = idxs
+            .seconds
+            .and_then(|i| fields.get(i))
+            .and_then(|v| v.trim().parse::<f64>().ok())
+            .or_else(|| {
+                idxs.qpc
+                    .and_then(|i| fields.get(i))
+                    .and_then(|v| v.trim().parse::<f64>().ok())
+            });
+        if let Some(t) = time_val {
+            if let Some(p) = prev_time {
+                if t < p {
+                    out.capture.monotonic = false;
+                }
+            }
+            prev_time = Some(t);
+        }
+        if idxs.seconds.is_some() {
+            if let Some(s) = idxs.seconds.and_then(|i| fields.get(i)) {
+                if let Ok(v) = s.trim().parse::<f64>() {
+                    if v.is_finite() {
+                        if out.capture.first_time_secs.is_none() {
+                            out.capture.first_time_secs = Some(v);
+                        }
+                        out.capture.last_time_secs = Some(v);
+                    }
+                }
+            }
+        }
+        if idxs.frames >= fields.len() {
+            continue;
+        }
+        let value = fields[idxs.frames].trim();
+        if value.is_empty() || value.eq_ignore_ascii_case("NA") {
+            continue;
+        }
+        let v: f64 = value.parse().map_err(|_| {
+            format!(
+                "CSV 第 {} 行 msBetweenPresents 非數值: {:?}",
+                lineno + 1,
+                fields[idxs.frames]
+            )
+        })?;
+        if !(v.is_finite() && v > 0.0) {
+            continue;
+        }
+        saw_data = true;
+        out.frames.push(v);
+        out.display.presents += 1;
+        // 顯示端欄位（同列；缺欄/NA/非有限一律跳過，不影響 frametime 有效性）
+        if let Some(i) = idxs.display_change {
+            if let Some(f) = fields.get(i) {
+                if let Ok(d) = f.trim().parse::<f64>() {
+                    if d.is_finite() && d > 0.0 {
+                        out.display.intervals.push(d);
+                    }
+                }
+            }
+        }
+        if let Some(i) = idxs.until_displayed {
+            if let Some(f) = fields.get(i) {
+                if let Ok(l) = f.trim().parse::<f64>() {
+                    if l.is_finite() && l >= 0.0 {
+                        out.display.latencies.push(l);
+                    }
+                }
+            }
+        }
+        if let Some(i) = idxs.dropped {
+            out.display.dropped_seen = true;
+            if let Some(f) = fields.get(i) {
+                if let Ok(d) = f.trim().parse::<f64>() {
+                    if d.is_finite() && d >= 0.5 {
+                        out.display.dropped_count += 1;
+                    }
+                }
+            }
+        }
+    }
+
+    match idxs.frames_found {
+        false => Err("CSV 缺 msBetweenPresents 欄位".to_string()),
+        true if !saw_data => Err("CSV 沒有有效 frametime 資料".to_string()),
+        true => Ok(out),
+    }
+}
+
+/// 各欄位的 header 位置（含是否已找到 header）。
+#[derive(Default)]
+struct ColumnIndexes {
+    found_header: bool,
+    frames_found: bool,
+    frames: usize,
+    seconds: Option<usize>,
+    qpc: Option<usize>,
+    display_change: Option<usize>,
+    until_displayed: Option<usize>,
+    dropped: Option<usize>,
+}
+
+impl ColumnIndexes {
+    fn locate(&mut self, fields: &[String]) {
+        for (i, f) in fields.iter().enumerate() {
+            let name = f.trim();
+            if name.eq_ignore_ascii_case(COL_MS_BETWEEN_PRESENTS) {
+                self.frames = i;
+                self.frames_found = true;
+            } else if name.eq_ignore_ascii_case(COL_TIME_IN_SECONDS) {
+                self.seconds = Some(i);
+            } else if name.eq_ignore_ascii_case(COL_QPC_TIME) {
+                self.qpc = Some(i);
+            } else if name.eq_ignore_ascii_case(COL_MS_BETWEEN_DISPLAY_CHANGE) {
+                self.display_change = Some(i);
+            } else if name.eq_ignore_ascii_case(COL_MS_UNTIL_DISPLAYED) {
+                self.until_displayed = Some(i);
+            } else if name.eq_ignore_ascii_case(COL_DROPPED) {
+                self.dropped = Some(i);
+            }
+        }
+        self.found_header = self.frames_found;
     }
 }
 
@@ -296,14 +468,76 @@ pub fn compute_lp_result(lp: u32, frames: &[f64]) -> Result<LpResult, String> {
         frametime_mad_pct: frametime_mad_pct(frames),
         spike_rate_pct: spike_rate_pct(frames),
         sample_count: n,
+        // 顯示端指標只由 attach_display_metrics 填入
+        displayed_avg_fps: None,
+        displayed_p1_low: None,
+        display_latency_avg_ms: None,
+        display_latency_p99_ms: None,
+        dropped_pct: None,
         completed: true,
         error: None,
     })
 }
 
+/// 顯示端指標（皆 Option：欄位缺失或無有效樣本 → None）。
+#[derive(Debug, Clone, Copy, Default, PartialEq)]
+pub struct DisplayMetrics {
+    /// 顯示端平均 FPS：1000 / mean(display-change 間隔)
+    pub displayed_avg_fps: Option<f64>,
+    /// 顯示端 1% low（frame-count，作用於 display-change 間隔）
+    pub displayed_p1_low: Option<f64>,
+    /// present→顯示延遲平均（毫秒）
+    pub display_latency_avg_ms: Option<f64>,
+    /// present→顯示延遲 p99（毫秒；10-20s capture 樣本數有限，不做 p99.9）
+    pub display_latency_p99_ms: Option<f64>,
+    /// 丟幀佔比（%；CSV 無 Dropped 欄 → None）
+    pub dropped_pct: Option<f64>,
+}
+
+/// 由顯示端序列計算顯示端指標（純函式）。
+pub fn compute_display_metrics(series: &DisplaySeries) -> DisplayMetrics {
+    let fps = frame_times_to_fps(&series.intervals);
+    DisplayMetrics {
+        displayed_avg_fps: (!series.intervals.is_empty())
+            .then(|| 1000.0 / (series.intervals.iter().sum::<f64>() / series.intervals.len() as f64))
+            .filter(|v| v.is_finite()),
+        displayed_p1_low: n_pct_low_fps(&fps, 0.01),
+        display_latency_avg_ms: (!series.latencies.is_empty()).then(|| {
+            series.latencies.iter().sum::<f64>() / series.latencies.len() as f64
+        }),
+        display_latency_p99_ms: percentile_fps(&series.latencies, 0.99),
+        dropped_pct: (series.dropped_seen && series.presents > 0).then(|| {
+            series.dropped_count as f64 / series.presents as f64 * 100.0
+        }),
+    }
+}
+
+/// 把顯示端指標併入既有 LpResult（就地覆寫 5 個 display 欄位）。
+pub fn attach_display_metrics(r: &mut LpResult, series: &DisplaySeries) {
+    let dm = compute_display_metrics(series);
+    r.displayed_avg_fps = dm.displayed_avg_fps;
+    r.displayed_p1_low = dm.displayed_p1_low;
+    r.display_latency_avg_ms = dm.display_latency_avg_ms;
+    r.display_latency_p99_ms = dm.display_latency_p99_ms;
+    r.dropped_pct = dm.dropped_pct;
+}
+
 /// 把各 round 的 frametime 合併成單一序列（round 順序不重要，統計用）
 pub fn merge_rounds(per_round: &[Vec<f64>]) -> Vec<f64> {
     per_round.iter().flatten().copied().collect()
+}
+
+/// 合併各 round 的顯示端序列（round 順序不重要；計數相加、旗標 OR）
+pub fn merge_display_rounds(per_round: &[DisplaySeries]) -> DisplaySeries {
+    let mut out = DisplaySeries::default();
+    for s in per_round {
+        out.intervals.extend_from_slice(&s.intervals);
+        out.latencies.extend_from_slice(&s.latencies);
+        out.dropped_count = out.dropped_count.saturating_add(s.dropped_count);
+        out.dropped_seen |= s.dropped_seen;
+        out.presents = out.presents.saturating_add(s.presents);
+    }
+    out
 }
 
 // ── frametime 穩健性指標（與 workload 無關） ─────────────────────────────
@@ -1232,5 +1466,127 @@ Application,ProcessID,msBetweenPresents
             (fwd + rev).abs() < 1e-9,
             "反向應完全對稱: fwd={fwd} rev={rev}"
         );
+    }
+
+    // ── 顯示端序列（present→display 延遲 / display-change 間隔 / 丟幀）──
+
+    /// PresentMon 2.5.1 `--v1_metrics` 實際表頭（含 BOM，取自真實 session CSV）
+    const V1_HEADER: &str = "\
+\u{feff}Application,ProcessID,SwapChainAddress,Runtime,SyncInterval,PresentFlags,Dropped,TimeInSeconds,msInPresentAPI,msBetweenPresents,AllowsTearing,PresentMode,msUntilRenderComplete,msUntilDisplayed,msBetweenDisplayChange,msFlipDelay";
+
+    #[test]
+    fn series_parses_display_columns_from_v1_header() {
+        let csv = format!(
+            "{V1_HEADER}\n\"g (1)\",1,0x0,D3D11,1,0,1,0.001,0.1,16.0,0,\"Composed\",5.0,8.0,16.6,0.0\n\
+             \"g (1)\",1,0x0,D3D11,1,0,0,0.017,0.1,16.2,0,\"Composed\",5.0,NA,16.4,0.0\n"
+        );
+        let s = parse_presentmon_series(&csv).unwrap();
+        assert_eq!(s.frames, vec![16.0, 16.2]);
+        assert_eq!(s.display.presents, 2);
+        // 間隔欄位有效就收（NA 只影響同列的延遲欄位）
+        assert_eq!(s.display.intervals, vec![16.6, 16.4]);
+        assert_eq!(s.display.latencies, vec![8.0]); // NA 延遲剔除
+        assert!(s.display.dropped_seen);
+        assert_eq!(s.display.dropped_count, 1);
+        // 時間欄位照常解析
+        assert_eq!(s.capture.first_time_secs, Some(0.001));
+        assert_eq!(s.capture.last_time_secs, Some(0.017));
+        assert!(s.capture.monotonic);
+    }
+
+    #[test]
+    fn series_without_display_columns_still_parses_frames() {
+        let csv = "Application,msBetweenPresents\ngame.exe,16.7\ngame.exe,8.3\n";
+        let s = parse_presentmon_series(&csv).unwrap();
+        assert_eq!(s.frames, vec![16.7, 8.3]);
+        assert!(s.display.intervals.is_empty());
+        assert!(s.display.latencies.is_empty());
+        assert!(!s.display.dropped_seen);
+        assert_eq!(s.display.dropped_count, 0);
+        assert_eq!(s.display.presents, 2);
+    }
+
+    #[test]
+    fn series_errors_match_legacy_semantics() {
+        // 缺主欄 → Err；無有效 frametime → Err（與 parse_presentmon_csv 相同）
+        assert!(parse_presentmon_series("Application,ProcessID\n1,2\n").is_err());
+        assert!(parse_presentmon_series("Application,msBetweenPresents\n").is_err());
+        // 非單調時間仍偵測（不 Err，與 CsvCapture.monotonic 語意一致）
+        let csv = format!(
+            "{V1_HEADER}\n\"g\",1,0,1,0,1,0,0.02,0,16.0,0,\"C\",0,NA,0,0\n\
+             \"g\",1,0,1,0,1,0,0.01,0,16.0,0,\"C\",0,NA,0,0\n"
+        );
+        let s = parse_presentmon_series(&csv).unwrap();
+        assert!(!s.capture.monotonic);
+    }
+
+    #[test]
+    fn display_metrics_math_and_none_guards() {
+        // 間隔 [10, 10, 10, 30] ms → 顯示端 avg = 1000/15 ≈ 66.67、
+        // instant FPS = [100,100,100,33.33] → 1% low = 單一最慢 = 33.33
+        let series = DisplaySeries {
+            intervals: vec![10.0, 10.0, 10.0, 30.0],
+            latencies: vec![2.0, 4.0, 6.0, 8.0, 100.0],
+            dropped_count: 1,
+            dropped_seen: true,
+            presents: 4,
+        };
+        let m = compute_display_metrics(&series);
+        let expected_avg = 1000.0 / 15.0;
+        assert!((m.displayed_avg_fps.unwrap() - expected_avg).abs() < 1e-9);
+        assert!((m.displayed_p1_low.unwrap() - 100.0 / 3.0).abs() < 1e-9);
+        assert!((m.display_latency_avg_ms.unwrap() - 24.0).abs() < 1e-9);
+        // p99 採 floor((n-1)q) 索引（5 樣本 → sorted[3] = 8.0，與既有 percentile 慣例一致）
+        assert!((m.display_latency_p99_ms.unwrap() - 8.0).abs() < 1e-9);
+        assert!((m.dropped_pct.unwrap() - 25.0).abs() < 1e-9);
+        // 無 dropped 欄 → None；無樣本 → 全 None
+        let bare = DisplaySeries {
+            dropped_seen: false,
+            ..Default::default()
+        };
+        let m2 = compute_display_metrics(&bare);
+        assert_eq!(m2.displayed_avg_fps, None);
+        assert_eq!(m2.dropped_pct, None);
+    }
+
+    #[test]
+    fn merge_display_rounds_sums_counts_and_flags() {
+        let a = DisplaySeries {
+            intervals: vec![10.0],
+            latencies: vec![1.0],
+            dropped_count: 1,
+            dropped_seen: true,
+            presents: 2,
+        };
+        let b = DisplaySeries {
+            intervals: vec![20.0, 30.0],
+            latencies: vec![],
+            dropped_count: 0,
+            dropped_seen: false,
+            presents: 3,
+        };
+        let m = merge_display_rounds(&[a, b]);
+        assert_eq!(m.intervals, vec![10.0, 20.0, 30.0]);
+        assert_eq!(m.latencies, vec![1.0]);
+        assert_eq!(m.dropped_count, 1);
+        assert!(m.dropped_seen);
+        assert_eq!(m.presents, 5);
+    }
+
+    #[test]
+    fn attach_display_metrics_fills_lp_result() {
+        let mut r = compute_lp_result(1, &[16.0]).unwrap();
+        assert_eq!(r.displayed_avg_fps, None);
+        let series = DisplaySeries {
+            intervals: vec![8.0],
+            latencies: vec![3.0],
+            dropped_count: 0,
+            dropped_seen: true,
+            presents: 1,
+        };
+        attach_display_metrics(&mut r, &series);
+        assert_eq!(r.displayed_avg_fps, Some(125.0));
+        assert_eq!(r.display_latency_avg_ms, Some(3.0));
+        assert_eq!(r.dropped_pct, Some(0.0));
     }
 }

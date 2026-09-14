@@ -10,7 +10,7 @@
   },
   "settings": {
     "general": "一般",
-    "autostart": "開機時自動啟動 FrameAnchor",
+    "autostart": "開機時自動啟動 PaceDock",
     "startMinimized": "啟動時最小化到系統匣",
     "closeToTray": "關閉視窗時最小化到系統匣（而非結束程式）",
     "language": "介面語言",
@@ -24,7 +24,7 @@
     "showAdvanced": "在規則編輯器顯示進階優先級（I/O / 記憶體）",
     "highPrecisionTimer": "高精度計時器",
     "highPrecisionTimerEnable": "常駐請求 0.5 ms 計時解析",
-    "highPrecisionTimerHint": "以 ntdll 請求 0.5 ms timer resolution。注意：Windows 10 2004 起此請求僅對 FrameAnchor 自身行程保證生效，是否抬升全域解析由系統決定；全域生效需自行設定登錄值 GlobalTimerResolutionRequests=1（本程式不會寫入）。",
+    "highPrecisionTimerHint": "以 ntdll 請求 0.5 ms timer resolution。注意：Windows 10 2004 起此請求僅對 PaceDock 自身行程保證生效，是否抬升全域解析由系統決定；全域生效需自行設定登錄值 GlobalTimerResolutionRequests=1（本程式不會寫入）。",
     "timerCurrent": "目前生效解析：{value} ms",
     "updateSection": "更新與版本",
     "data": "資料",
@@ -41,39 +41,39 @@
     "updateError": "更新檢查失敗",
     "updateErrorDetail": "錯誤：{error}",
     "updateConfirmTitle": "確認更新",
-    "updateConfirmBody": "即將安裝 FrameAnchor {version}。目前版本為 {current}。是否繼續？",
+    "updateConfirmBody": "即將安裝 PaceDock {version}。目前版本為 {current}。是否繼續？",
     "saveFailed": "設定儲存失敗：{error}",
     "dataFolder": "開啟資料夾"
   },
   "update": {
-    "bannerText": "FrameAnchor {version} 已發佈（目前版本 {current}）。",
+    "bannerText": "PaceDock {version} 已發佈（目前版本 {current}）。",
     "bannerInstall": "安裝",
     "bannerDismiss": "稍後"
   },
   "about": {
-    "title": "關於 FrameAnchor",
+    "title": "關於 PaceDock",
     "close": "關閉"
   },
   "timer": {
     "statusTitle": "計時器狀態",
     "detect": "手動偵測",
     "detectHint": "按下後讀取目前全系統生效的計時器解析（與 Clockres 相同三值），不會自動更新。",
-    "stateOn": "常駐請求生效中 — FrameAnchor 正持有 0.5 ms 請求。",
+    "stateOn": "常駐請求生效中 — PaceDock 正持有 0.5 ms 請求。",
     "stateOff": "未持有常駐請求。",
     "range": "支援區間：最細 {min} ms ～ 最粗 {max} ms（與 Clockres 顯示一致）",
-    "globalNote": "此值僅反映 FrameAnchor 自身。要讓全系統（含遊戲）吃到 0.5 ms，請在下方啟用全域模式。",
+    "globalNote": "此值僅反映 PaceDock 自身。要讓全系統（含遊戲）吃到 0.5 ms，請在下方啟用全域模式。",
     "globalTitle": "全域模式（登錄值）",
-    "globalHint": "寫入 GlobalTimerResolutionRequests=1，恢復 Win10 2004 前的全域語意：FrameAnchor 的 0.5 ms 請求會抬升全系統 tick（含遊戲）。此值只是政策門，程式關閉後 tick 自動回落原值；刪除登錄值即可完全還原。",
+    "globalHint": "寫入 GlobalTimerResolutionRequests=1，恢復 Win10 2004 前的全域語意：PaceDock 的 0.5 ms 請求會抬升全系統 tick（含遊戲）。此值只是政策門，程式關閉後 tick 自動回落原值；刪除登錄值即可完全還原。",
     "globalStatusOn": "GlobalTimerResolutionRequests = 1（已設定）",
     "globalStatusOff": "未設定（系統預設 per-process 語意）",
     "globalEnable": "啟用全域語意",
     "globalReboot": "已寫入，重開機後生效。",
     "exemptTitle": "遊戲節流豁免",
-    "exemptHint": "Win11 會把背景化/被遮蔽視窗行程的 timer 解析節流回 15.6 ms。加入名單的遊戲會解除節流：alt-tab 或被蓋住時，其 0.5 ms 不會被打回。名單會持久化 — 遊戲重啟（新 PID）與 FrameAnchor 重啟後都會自動重新套用；關閉 FrameAnchor 時會先還原全部豁免。",
+    "exemptHint": "Win11 會把背景化/被遮蔽視窗行程的 timer 解析節流回 15.6 ms。加入名單的遊戲會解除節流：alt-tab 或被蓋住時，其 0.5 ms 不會被打回。名單會持久化 — 遊戲重啟（新 PID）與 PaceDock 重啟後都會自動重新套用；關閉 PaceDock 時會先還原全部豁免。",
     "exemptPick": "選擇遊戲視窗",
     "exemptAdd": "加入豁免",
     "exemptRemove": "移除",
-    "exemptNone": "名單是空的。加入遊戲後，FrameAnchor 會在其執行時自動解除 timer 節流。",
+    "exemptNone": "名單是空的。加入遊戲後，PaceDock 會在其執行時自動解除 timer 節流。",
     "exemptNotRunning": "未執行",
     "exemptNote": "豁免只防止節流，不主動給 0.5 ms — 遊戲自己有請求（或全域模式已啟用）才有解析可保。"
   },
@@ -105,7 +105,7 @@
     "BENCHMARK_SESSION_NOT_COMPLETED": "基準測試 session 尚未完成",
     "BENCHMARK_RELIABILITY_NOT_PASSED": "基準測試結果可靠性不足，無法套用——請以至少 3 round 重跑",
     "BENCHMARK_SESSION_INCOMPATIBLE": "基準測試結果與目前 CPU/GPU 不符",
-    "BENCHMARK_RECOVERY_REQUIRED": "上次 GPU 變更未完整還原。請重啟 FrameAnchor 或手動還原後再繼續",
+    "BENCHMARK_RECOVERY_REQUIRED": "上次 GPU 變更未完整還原。請重啟 PaceDock 或手動還原後再繼續",
     "BENCHMARK_NOT_IMPLEMENTED": "基準測試執行器尚未實作",
     "BENCHMARK_ALREADY_RUNNING": "基準測試已在執行中",
     "BENCHMARK_NOT_ACTIVE": "沒有正在執行的基準測試",
@@ -124,7 +124,7 @@
     "BENCHMARK_CAPTURE_ETW_LOST": "PresentMon 遺失過多 ETW 事件——擷取負載過高。請關閉 overlay、GPU 監控或錄影工具後重試",
     "BENCHMARK_CAPTURE_OVERFLOW": "PresentMon 的 present 事件緩衝區重試後仍溢位——請降低 workload FPS 上限或關閉其他 GPU 工具後重試",
     "BENCHMARK_ENV_UNSTABLE": "系統狀態不夠穩定而無法基準測試（電源、電池節能、CPU 負載或時間漂移）。請接上 AC、關閉電池節能、關閉背景程式後重試",
-    "BENCHMARK_WINDOW_SPACE_INSUFFICIENT": "此螢幕工作區空間不足以同時放置基準測試視窗與 FrameAnchor。請改用較小的基準測試解析度，或使用工作區較大的螢幕",
+    "BENCHMARK_WINDOW_SPACE_INSUFFICIENT": "此螢幕工作區空間不足以同時放置基準測試視窗與 PaceDock。請改用較小的基準測試解析度，或使用工作區較大的螢幕",
     "BENCHMARK_WINDOW_INTEGRITY": "基準測試視窗失去前景、位置或可見性（被最小化／被遮蓋／被移動）。請關閉覆蓋層並保持視窗在前景後重試",
     "BENCHMARK_NOT_EQUIVALENT": "此基準測試結果並非等效配對——無法進行等效套用的安全驗證",
     "BENCHMARK_EQUIVALENT_LP_INVALID": "選取的核心不在等效候選清單內",
@@ -137,7 +137,8 @@
     "CAPTURE_GAME_NOT_FOUND": "選定的遊戲視窗已關閉或不存在",
     "CAPTURE_ALREADY_RUNNING": "已有量測或基準測試進行中",
     "unknown": "未知錯誤",
-    "anticheatNote": "此遊戲受反作弊保護。請讓 FrameAnchor 在遊戲啟動前執行；若遊戲已在運行，請重啟遊戲。"
+    "anticheatNote": "此遊戲受反作弊保護。請讓 PaceDock 在遊戲啟動前執行；若遊戲已在運行，請重啟遊戲。",
+    "GPU_MSI_FAILED": "MSI 操作失敗。"
   },
   "quick": {
     "title": "GPU 調校",
@@ -193,10 +194,7 @@
     "done": "操作完成。",
     "recovery": "有尚未完成的 GPU 還原日誌；禁止測試與套用。請重新啟動以重試復原。",
     "exitBlocked": "GPU 操作仍在進行。請先取消測試，並等待清理、套用或還原完成後再關閉視窗。",
-    "migration": "舊遊戲 CPU 規則已停用，原資料保留。若遊戲仍在執行且曾被舊版修改，請重新啟動遊戲。新版不會猜測或覆寫其原始設定。",
-    "cleanupFailed": "舊自啟排程清理失敗",
     "retry": "重試清理",
-    "dismiss": "知道了",
     "phase": {
       "Calibration": "校準",
       "Screening": "篩選",
@@ -231,6 +229,20 @@
       "finalizing": "完成清理",
       "cancelling": "取消",
       "calibrating": "校準"
+    },
+    "colDisplayP99": "P→D p99 (ms)",
+    "colDropped": "丟幀 %",
+    "msiConfirm": "啟用訊息號誌中斷（MSISupported=1）？套用後將重啟顯示裝置。",
+    "msiRestoreConfirm": "還原先前的 MSI 設定？套用後將重啟顯示裝置。",
+    "msiEnable": "啟用 MSI",
+    "msiRestore": "還原 MSI",
+    "baseline": {
+      "BeatsDefault": "優於系統預設策略",
+      "WithinThreshold": "與預設策略無顯著差異",
+      "Worse": "預設策略表現較佳",
+      "Inconclusive": "前後基線漂移過大，對照不可靠",
+      "hint": "在相同條件下與 OS 預設策略對照（候選測試前後各量一次）。此結果不影響套用資格。",
+      "none": "此 session 沒有原始策略對照資料。"
     }
   },
   "measure": {
@@ -247,6 +259,8 @@
     "noGames": "找不到可量測的遊戲視窗",
     "noCaptures": "尚無量測紀錄",
     "delete": "刪除所選紀錄",
-    "deleteConfirm": "永久刪除此量測紀錄與其原始資料？"
+    "deleteConfirm": "永久刪除此量測紀錄與其原始資料？",
+    "rowDisplayP99": "P→D p99 (ms)",
+    "rowDropped": "丟幀 %"
   }
 }

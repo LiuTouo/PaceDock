@@ -7,7 +7,7 @@
 //!
 //! 儲存刻意**不**用 benchmark session schema（那套有 HMAC，因為紀錄驅動特權
 //! GPU mutation；capture 紀錄不驅動任何特權操作）：
-//! `%APPDATA%\FrameAnchor\captures\<uuid>.csv` + `<uuid>.json`。
+//! `%APPDATA%\PaceDock\captures\<uuid>.csv` + `<uuid>.json`。
 
 use std::path::{Path, PathBuf};
 use std::sync::atomic::{AtomicBool, Ordering};
@@ -32,7 +32,7 @@ use crate::config;
 use crate::error::codes;
 
 use super::manager::{BenchmarkManager, GpuOperationGuard};
-use super::metrics::{compute_lp_result, parse_presentmon_csv};
+use super::metrics::{compute_lp_result, parse_presentmon_series};
 use super::process_win::RealProcessRunner;
 use super::runner::{
     assess_capture_integrity, presentmon_command, ProcessRunner, CAPTURE_WAIT_MARGIN_S,
@@ -92,7 +92,7 @@ pub fn request_cancel() {
 /// 排除清單：shell/系統/自身行程（`ponytail:` 名單 + 尺寸下限涵蓋絕大多數雜訊，
 /// 有誤報再換真正的分類器）。
 const EXE_BLACKLIST: &[&str] = &[
-    "frameanchor.exe",
+    "pacedock.exe",
     "msedgewebview2.exe",
     "explorer.exe",
     "applicationframehost.exe",
@@ -349,7 +349,7 @@ pub fn run_game_capture(
     }
 
     emit_progress(app, &id, "capturing", 0);
-    let session_name = format!("FrameAnchor-capture-{id}");
+    let session_name = format!("PaceDock-capture-{id}");
     let args = presentmon_command(
         duration_secs,
         PRESENTMON_CIRCULAR_BUFFER_SIZE,
@@ -419,14 +419,15 @@ pub fn run_game_capture(
         return Err(code);
     }
 
-    let frames = std::fs::read_to_string(&csv)
+    let series = std::fs::read_to_string(&csv)
         .ok()
-        .and_then(|t| parse_presentmon_csv(&t).ok())
+        .and_then(|t| parse_presentmon_series(&t).ok())
         .ok_or_else(|| codes::BENCHMARK_CSV_INVALID.to_string())?;
-    let metrics = compute_lp_result(0, &frames).map_err(|e| {
+    let mut metrics = compute_lp_result(0, &series.frames).map_err(|e| {
         log::warn!("遊戲量測指標計算失敗: {e}");
         codes::BENCHMARK_CSV_INVALID.to_string()
     })?;
+    super::metrics::attach_display_metrics(&mut metrics, &series.display);
 
     // capture 當下的鎖定核心（before/after 對照用；best-effort，失敗不擋結果）
     let locked_lp = gpu_instance_id.as_deref().and_then(|instance| {
@@ -489,7 +490,7 @@ mod tests {
     #[test]
     fn candidate_matrix_rejects_noise() {
         // 自身行程
-        assert!(!candidate((42, 42, "FrameAnchor", "frameanchor.exe", true, false, false, false, 800, 600)));
+        assert!(!candidate((42, 42, "PaceDock", "pacedock.exe", true, false, false, false, 800, 600)));
         // 黑名單（大小寫不敏感）
         assert!(!candidate((1, 7, "Settings", "explorer.exe", true, false, false, false, 1200, 800)));
         assert!(!candidate((1, 7, "x", "MSEdgeWebView2.exe", true, false, false, false, 1200, 800)));

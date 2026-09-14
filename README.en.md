@@ -1,10 +1,10 @@
-# FrameAnchor
+# PaceDock
 
-<p align="center"><img src="src-tauri/icons/icon.png" width="128" alt="FrameAnchor icon"></p>
+<p align="center"><img src="src-tauri/icons/icon.png" width="128" alt="PaceDock icon"></p>
 
 A Windows GPU physical-core tuning tool. [繁體中文](README.md) · **English**
 
-FrameAnchor compares GPU interrupt-affinity candidates using a synthetic workload, with results, history, manual application and restoration. It opens directly on the GPU page and exits when you close it while idle.
+PaceDock compares GPU interrupt-affinity candidates using a synthetic workload, with results, history, manual application and restoration. It opens directly on the GPU page and exits when you close it while idle.
 
 ## Test workflow
 
@@ -32,8 +32,9 @@ The frontend sends core IDs only. The backend verifies the session HMAC, GPU, CP
 - Legacy single-LP history is view-only. It cannot be applied, expanded to a whole core or automatically re-signed.
 - Existing GPU restoration records remain valid. Multi-bit policies display their complete LP set.
 - Legacy game CPU rules remain in the configuration, including when general settings are saved, but never execute. Restart any running game modified by an older version.
-- The tray, Dashboard, game rules, autostart and minimized startup are removed. Recognizable legacy startup tasks are cleaned up; failures display a reason and a retry action.
-- Language, theme, updates and the data-folder action remain available. Data lives in `%APPDATA%\FrameAnchor`.
+- The tray, Dashboard, game rules, autostart and minimized startup are removed. This version does not clean up startup tasks from the previous brand.
+- Install the renamed app as a fresh installation. Settings, history, recovery records and keys from the previous brand are not migrated, and updates from that brand are unsupported. Before switching, restore GPU policy and disable startup tasks using the previous app, then exit it. Keep its data and keys until recovery is no longer needed.
+- Language, theme, updates and the data-folder action remain available. Data lives in `%APPDATA%\PaceDock`.
 - Closing the window exits while idle. GPU testing, application or restoration blocks exit until operations and cleanup finish.
 
 GPU policy changes require administrator privileges and restart the display device; the display may briefly go black. ETW/CSV integrity, window checks, cancellation and crash recovery remain in place.
@@ -42,10 +43,10 @@ GPU policy changes require administrator privileges and restart the display devi
 
 ### Install from Releases
 
-Download the latest version from [GitHub Releases](https://github.com/LiuTouo/FrameAnchor/releases). Two distribution forms are provided:
+Download the latest version from [GitHub Releases](https://github.com/LiuTouo/PaceDock/releases). Two distribution forms are provided:
 
-- **NSIS installer** (`FrameAnchor_X.Y.Z_x64-setup.exe`): Standard install mode. Supports automatic updates via the Tauri updater plugin.
-- **Portable** (`FrameAnchor_X.Y.Z_x64-portable.zip`): Extract to any directory and run. Supports online update checking at startup and on manual request; can download a new version, ask for confirmation, replace the executable, and restart.
+- **NSIS installer** (`PaceDock_X.Y.Z_x64-setup.exe`): Standard install mode. Supports automatic updates via the Tauri updater plugin.
+- **Portable** (`PaceDock_X.Y.Z_x64-portable.zip`): Extract to any directory and run. Supports online update checking at startup and on manual request; can download a new version, ask for confirmation, replace the executable, and restart.
 
 Every release asset includes a SHA256 checksum file (`.sha256`).
 
@@ -134,8 +135,8 @@ The complete application and its process operations depend on Windows APIs. Chan
 
 Maintainers trigger automated builds and releases by pushing a semantic version tag. The CI workflow validates version consistency across all files, checks the updater signing key, runs frontend type checks and Rust tests, then builds all artifacts:
 
-- NSIS installer (`FrameAnchor_X.Y.Z_x64-setup.exe`) with `.sha256`
-- Portable ZIP (`FrameAnchor_X.Y.Z_x64-portable.zip`) with `.sha256`
+- NSIS installer (`PaceDock_X.Y.Z_x64-setup.exe`) with `.sha256`
+- Portable ZIP (`PaceDock_X.Y.Z_x64-portable.zip`) with `.sha256`
 - Updater `latest.json` and signature files
 
 ### Updater Signing Key Setup
@@ -155,7 +156,7 @@ Set the private key content as the GitHub Actions secret `TAURI_SIGNING_PRIVATE_
 1. Sync version numbers in `package.json`, `package-lock.json`, `src-tauri/Cargo.toml`, and `src-tauri/tauri.conf.json`.
 2. Commit and tag with `vX.Y.Z` format.
 3. Push the tag to trigger the workflow.
-4. Download assets from [GitHub Releases](https://github.com/LiuTouo/FrameAnchor/releases).
+4. Download assets from [GitHub Releases](https://github.com/LiuTouo/PaceDock/releases).
 
 Windows binaries are **not code-signed**. Windows Defender SmartScreen may show a warning on download and first launch. This is expected and does not affect functionality.
 

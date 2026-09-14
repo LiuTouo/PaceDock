@@ -1,4 +1,4 @@
-# Security Review: FrameAnchor
+# Security Review: PaceDock
 
 ## Scope
 
@@ -40,7 +40,7 @@ Canonical artifacts: `scan-manifest.json`, `findings.json`, and `coverage.json`.
 
 ## Threat Model
 
-FrameAnchor 0.2.6 是 Windows 專用、單使用者的 Tauri 桌面工具。Svelte main WebView 透過 Tauri IPC 控制 requireAdministrator Rust host；正常啟動包含手動/UAC 與 ONLOGON+HIGHEST --minimized，部署包含 NSIS currentUser 與 portable。敏感操作包括修改其他程序 scheduling、寫 HKLM GPU interrupt policy、重啟顯示裝置、以高權限啟動 benchmark sidecars、自我更新及 release 簽署/發布。
+PaceDock 0.2.6 是 Windows 專用、單使用者的 Tauri 桌面工具。Svelte main WebView 透過 Tauri IPC 控制 requireAdministrator Rust host；正常啟動包含手動/UAC 與 ONLOGON+HIGHEST --minimized，部署包含 NSIS currentUser 與 portable。敏感操作包括修改其他程序 scheduling、寫 HKLM GPU interrupt policy、重啟顯示裝置、以高權限啟動 benchmark sidecars、自我更新及 release 簽署/發布。
 
 ### Assets
 
@@ -50,7 +50,7 @@ FrameAnchor 0.2.6 是 Windows 專用、單使用者的 Tauri 桌面工具。Svel
 - 高權限 IPC、benchmark child-process execution 與 bundled executable integrity（src-tauri/src/main.rs:145-179；src-tauri/src/benchmark/process_win.rs:140-164）。
 - config/session/recovery/restore state under config_dir（src-tauri/src/config.rs:14-31；src-tauri/src/benchmark/storage.rs:15-57；src-tauri/src/benchmark/recovery.rs:28-52）。
 - installed/portable update integrity、release token 與 updater signing key（src-tauri/tauri.conf.json:45-55；src-tauri/src/update.rs:155-228；.github/workflows/release.yml:80-134）。
-- Benchmark capture freshness and ranking evidence in `%APPDATA%\FrameAnchor\benchmarks` must remain bound to the successful PresentMon process and immutable through selection (src-tauri/src/benchmark/runner.rs:1888-2030,2338-2426).
+- Benchmark capture freshness and ranking evidence in `%APPDATA%\PaceDock\benchmarks` must remain bound to the successful PresentMon process and immutable through selection (src-tauri/src/benchmark/runner.rs:1888-2030,2338-2426).
 
 ### Trust Boundaries
 
@@ -87,7 +87,7 @@ FrameAnchor 0.2.6 是 Windows 專用、單使用者的 Tauri 桌面工具。Svel
 
 - 無 user context、既有 threat model、knowledge base或 SECURITY.md；範圍為目前 repository 全部內容。
 - 產品是 Windows desktop app，不假設 network service、多租戶或remote unauthenticated caller。
-- APPDATA正常時 effective config root 為 %APPDATA%\\FrameAnchor；缺失時 code fallback 至 current-exe-dir或相對路徑（src-tauri/src/config.rs:14-27）。
+- APPDATA正常時 effective config root 為 %APPDATA%\\PaceDock；缺失時 code fallback 至 current-exe-dir或相對路徑（src-tauri/src/config.rs:14-27）。
 - NSIS installMode=currentUser但 repository未固定絕對安裝路徑；portable可在任意目錄。
 - installed updater使用配置 public key；portable custom updater只使用同release checksum，兩條 authenticity controls不同。
 - normal UI對 benchmark executable override傳 null；production IPC/schema仍接受該欄位，是否可利用需renderer compromise前提。
@@ -177,7 +177,7 @@ FrameAnchor 0.2.6 是 Windows 專用、單使用者的 Tauri 桌面工具。Svel
 
 #### Summary
 
-portable updater 驗證記憶體中的 ZIP 後，把 executable/resources 與 `update.ps1` 寫到固定 `%TEMP%\frameanchor_update`；elevated helper 之後重新依路徑開啟腳本並移動/啟動 staged executable。低完整性同帳戶程序可置換這些物件，使任意 script/PE 以管理員權限執行。
+portable updater 驗證記憶體中的 ZIP 後，把 executable/resources 與 `update.ps1` 寫到固定 `%TEMP%\pacedock_update`；elevated helper 之後重新依路徑開啟腳本並移動/啟動 staged executable。低完整性同帳戶程序可置換這些物件，使任意 script/PE 以管理員權限執行。
 
 #### Root Cause
 
@@ -188,9 +188,9 @@ portable updater 驗證記憶體中的 ZIP 後，把 executable/resources 與 `u
 固定 user TEMP 路徑與一般 File::create 未建立不可變 file identity。
 
 ```Rust
-let tmp_dir = std::env::temp_dir().join("frameanchor_update");
+let tmp_dir = std::env::temp_dir().join("pacedock_update");
 std::fs::create_dir_all(&tmp_dir)?;
-let tmp_exe = tmp_dir.join("FrameAnchor_new.exe");
+let tmp_exe = tmp_dir.join("PaceDock_new.exe");
 let mut out = std::fs::File::create(&tmp_exe)?;
 ```
 
@@ -227,16 +227,16 @@ Counterevidence and remaining uncertainty:
 
 #### Dataflow
 
-attacker 監看固定 user TEMP path，於 write/verify 後替換 `update.ps1` 或 `FrameAnchor_new.exe`；elevated process/PowerShell重新依路徑消費；任意 script/PE獲得 administrator token。
+attacker 監看固定 user TEMP path，於 write/verify 後替換 `update.ps1` 或 `PaceDock_new.exe`；elevated process/PowerShell重新依路徑消費；任意 script/PE獲得 administrator token。
 
 **Fixed writable staging paths** — `src-tauri/src/update.rs:460-475`
 
 固定 user TEMP 路徑與一般 File::create 未建立不可變 file identity。
 
 ```Rust
-let tmp_dir = std::env::temp_dir().join("frameanchor_update");
+let tmp_dir = std::env::temp_dir().join("pacedock_update");
 std::fs::create_dir_all(&tmp_dir)?;
-let tmp_exe = tmp_dir.join("FrameAnchor_new.exe");
+let tmp_exe = tmp_dir.join("PaceDock_new.exe");
 let mut out = std::fs::File::create(&tmp_exe)?;
 ```
 
@@ -416,18 +416,18 @@ Command::new("schtasks").args(["/Create", "/TN", TASK_NAME, "/SC", "ONLOGON", "/
 
 Preconditions:
 - 受害者為具 split administrator token 的帳戶。
-- 受害者曾啟用 FrameAnchor autostart。
+- 受害者曾啟用 PaceDock autostart。
 - current_exe 或任一可重導父路徑可由 medium-integrity attacker 修改。
 
 Existing controls:
 - task action 的 executable path 有雙引號包覆。
-- 建立 task 當下 FrameAnchor 已提升。
+- 建立 task 當下 PaceDock 已提升。
 
 #### Severity
 
 **High** — 此路徑可持續取得管理員程式碼執行；對使用 split administrator token、已啟用 autostart 且 target path 可寫的部署，利用只需檔案置換與下一次登入。
 
-受害者為具 split administrator token 的帳戶。；受害者曾啟用 FrameAnchor autostart。；current_exe 或任一可重導父路徑可由 medium-integrity attacker 修改。
+受害者為具 split administrator token 的帳戶。；受害者曾啟用 PaceDock autostart。；current_exe 或任一可重導父路徑可由 medium-integrity attacker 修改。
 
 Impact assessment:
 - **Level:** high
@@ -464,7 +464,7 @@ Preventive controls:
 
 #### Summary
 
-portable updater 驗證記憶體中的 ZIP 後，把 executable/resources 與 `update.ps1` 寫到固定 `%TEMP%\frameanchor_update`；elevated helper 之後重新依路徑開啟腳本並移動/啟動 staged executable。低完整性同帳戶程序可置換這些物件，使任意 script/PE 以管理員權限執行。
+portable updater 驗證記憶體中的 ZIP 後，把 executable/resources 與 `update.ps1` 寫到固定 `%TEMP%\pacedock_update`；elevated helper 之後重新依路徑開啟腳本並移動/啟動 staged executable。低完整性同帳戶程序可置換這些物件，使任意 script/PE 以管理員權限執行。
 
 #### Root Cause
 
@@ -475,9 +475,9 @@ portable updater 驗證記憶體中的 ZIP 後，把 executable/resources 與 `u
 固定 user TEMP 路徑與一般 File::create 未建立不可變 file identity。
 
 ```Rust
-let tmp_dir = std::env::temp_dir().join("frameanchor_update");
+let tmp_dir = std::env::temp_dir().join("pacedock_update");
 std::fs::create_dir_all(&tmp_dir)?;
-let tmp_exe = tmp_dir.join("FrameAnchor_new.exe");
+let tmp_exe = tmp_dir.join("PaceDock_new.exe");
 let mut out = std::fs::File::create(&tmp_exe)?;
 ```
 
@@ -514,16 +514,16 @@ Counterevidence and remaining uncertainty:
 
 #### Dataflow
 
-attacker 監看固定 user TEMP path，於 write/verify 後替換 `update.ps1` 或 `FrameAnchor_new.exe`；elevated process/PowerShell重新依路徑消費；任意 script/PE獲得 administrator token。
+attacker 監看固定 user TEMP path，於 write/verify 後替換 `update.ps1` 或 `PaceDock_new.exe`；elevated process/PowerShell重新依路徑消費；任意 script/PE獲得 administrator token。
 
 **Fixed writable staging paths** — `src-tauri/src/update.rs:460-475`
 
 固定 user TEMP 路徑與一般 File::create 未建立不可變 file identity。
 
 ```Rust
-let tmp_dir = std::env::temp_dir().join("frameanchor_update");
+let tmp_dir = std::env::temp_dir().join("pacedock_update");
 std::fs::create_dir_all(&tmp_dir)?;
-let tmp_exe = tmp_dir.join("FrameAnchor_new.exe");
+let tmp_exe = tmp_dir.join("PaceDock_new.exe");
 let mut out = std::fs::File::create(&tmp_exe)?;
 ```
 
@@ -888,7 +888,7 @@ std::process::Command::new("powershell")
 
 Preconditions:
 - 至少一個早於受保護 System32 的有效 executable 搜尋目錄可由 attacker 寫入。
-- 受害者啟動 FrameAnchor 並完成 UAC，或由 HIGHEST task 啟動。
+- 受害者啟動 PaceDock 並完成 UAC，或由 HIGHEST task 啟動。
 
 Existing controls:
 - child arguments 不經 cmd.exe。
@@ -1154,12 +1154,12 @@ Command::new("schtasks").args(["/Create", "/TN", TASK_NAME, "/SC", "ONLOGON", "/
 
 Preconditions:
 - 受害者為具 split administrator token 的帳戶。
-- 受害者曾啟用 FrameAnchor autostart。
+- 受害者曾啟用 PaceDock autostart。
 - current_exe 或任一可重導父路徑可由 medium-integrity attacker 修改。
 
 Existing controls:
 - task action 的 executable path 有雙引號包覆。
-- 建立 task 當下 FrameAnchor 已提升。
+- 建立 task 當下 PaceDock 已提升。
 
 #### Severity
 
@@ -1326,7 +1326,7 @@ std::process::Command::new("powershell")
 
 Preconditions:
 - 至少一個早於受保護 System32 的有效 executable 搜尋目錄可由 attacker 寫入。
-- 受害者啟動 FrameAnchor 並完成 UAC，或由 HIGHEST task 啟動。
+- 受害者啟動 PaceDock 並完成 UAC，或由 HIGHEST task 啟動。
 
 Existing controls:
 - child arguments 不經 cmd.exe。
@@ -1336,7 +1336,7 @@ Existing controls:
 
 **High** — `schtasks` sink 在每次 tray 建立時自動到達；對 currentUser/portable 可寫搜尋目錄中的 resident local attacker，影響為直接 administrator code execution。
 
-至少一個早於受保護 System32 的有效 executable 搜尋目錄可由 attacker 寫入。；受害者啟動 FrameAnchor 並完成 UAC，或由 HIGHEST task 啟動。
+至少一個早於受保護 System32 的有效 executable 搜尋目錄可由 attacker 寫入。；受害者啟動 PaceDock 並完成 UAC，或由 HIGHEST task 啟動。
 
 Impact assessment:
 - **Level:** high
@@ -1939,7 +1939,7 @@ Existing controls:
 
 Impact assessment:
 - **Level:** high
-- **Rationale:** 任意native executable繼承FrameAnchor administrator token。
+- **Rationale:** 任意native executable繼承PaceDock administrator token。
 
 Likelihood assessment:
 - **Level:** medium
@@ -2241,7 +2241,7 @@ Additional runtime or deployment evidence could raise or lower this severity.
 
 Impact assessment:
 - **Level:** high
-- **Rationale:** 任意native executable繼承FrameAnchor administrator token。
+- **Rationale:** 任意native executable繼承PaceDock administrator token。
 
 Likelihood assessment:
 - **Level:** medium
@@ -2308,7 +2308,7 @@ recovery/restore JSON可控制HKLM GPU policy；unsigned session.json的Passed/b
 recovery/restore JSON可控制HKLM GPU policy；unsigned session.json的Passed/bestLp也會在語意檢查後驅動apply_best。所有資料位於same-user可寫APPDATA且缺少MAC/high-only storage。
 
 Preconditions:
-- same-user medium-integrity actor可寫%APPDATA%\\FrameAnchor。
+- same-user medium-integrity actor可寫%APPDATA%\\PaceDock。
 - session路徑另需使用者觸發apply。
 
 #### Severity
@@ -2911,7 +2911,7 @@ apply_affinity_to_gpu(backend, sleeper, instance_id, best_lp, journal_path, rest
 
 Startup recovery is automatic when a forged journal uses PolicyApplied/DeviceRestarted. Manual restore and session apply require a UI/renderer trigger. The attacker must know a present GPU instance ID for successful restart.
 
-- **Attacker:** Same-user medium-integrity process able to write %APPDATA%\\FrameAnchor.
+- **Attacker:** Same-user medium-integrity process able to write %APPDATA%\\PaceDock.
 
 - **Entry point:** benchmark-recovery.json, gpu-restore.json or benchmarks/\<uuid\>/session.json
 
@@ -2922,7 +2922,7 @@ Startup recovery is automatic when a forged journal uses PolicyApplied/DeviceRes
 Preconditions:
 - attacker與受害者使用相同Windows profile且能寫APPDATA。
 - 對完整裝置重啟影響，attacker需提供目前display adapter instance ID。
-- Victim later launches FrameAnchor elevated; session/restore routes additionally require the corresponding user action.
+- Victim later launches PaceDock elevated; session/restore routes additionally require the corresponding user action.
 
 Existing controls:
 - serde拒絕語法錯誤JSON。
@@ -4102,7 +4102,7 @@ Counterevidence and remaining uncertainty:
 
 #### Dataflow
 
-attacker替換上游versioned asset；maintainer執行refresh；script接受bytes、copy入resources並生成matching SHA256SUMS；review/build將其發布；FrameAnchor elevated benchmark spawn執行。
+attacker替換上游versioned asset；maintainer執行refresh；script接受bytes、copy入resources並生成matching SHA256SUMS；review/build將其發布；PaceDock elevated benchmark spawn執行。
 
 **Download has no pretrusted verification** — `scripts/fetch-benchmark-assets.mjs:59-64`
 
@@ -4564,7 +4564,7 @@ Counterevidence and remaining uncertainty:
 
 #### Dataflow
 
-attacker替換上游versioned asset；maintainer執行refresh；script接受bytes、copy入resources並生成matching SHA256SUMS；review/build將其發布；FrameAnchor elevated benchmark spawn執行。
+attacker替換上游versioned asset；maintainer執行refresh；script接受bytes、copy入resources並生成matching SHA256SUMS；review/build將其發布；PaceDock elevated benchmark spawn執行。
 
 **Download has no pretrusted verification** — `scripts/fetch-benchmark-assets.mjs:59-64`
 
