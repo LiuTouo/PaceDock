@@ -17,6 +17,7 @@
       pcieAspm: { name: 'PCIe link power (ASPM)', Ok: 'PCIe link state power management is off.', Info: '', Warn: 'PCIe link state power management is on and can add latency. Consider disabling it in the active plan’s advanced settings.', Unknown: '' },
       gameDvr: { name: 'Game DVR capture', Ok: 'Background game capture is off.', Info: '', Warn: 'Game DVR / background recording may consume GPU resources and hurt frame pacing.', Unknown: '' },
       hags: { name: 'Hardware-accelerated GPU scheduling', Ok: 'Hardware-accelerated GPU scheduling is off (classic scheduling).', Info: 'Hardware-accelerated GPU scheduling (HAGS) is on; reported for information only.', Unknown: '' },
+      usbSelectiveSuspend: { name: 'USB selective suspend', Ok: 'USB selective suspend is disabled on AC and battery.', Info: '', Warn: 'USB selective suspend is enabled and can add input latency. Disable it from the power-tweaks card on the status tab.', Unknown: '' },
     } as Record<string, Record<string, string>>,
   } : {
     title: '系統環境健檢（唯讀）',
@@ -27,6 +28,7 @@
       pcieAspm: { name: 'PCIe 鏈路電源管理（ASPM）', Ok: 'PCIe 鏈路電源管理已停用。', Info: '', Warn: 'PCIe 鏈路電源管理開啟中，可能增加延遲；建議在電源計畫進階設定中停用。', Unknown: '' },
       gameDvr: { name: 'Game DVR 背景錄製', Ok: '遊戲背景錄製已停用。', Info: '', Warn: 'Game DVR／背景錄製可能佔用 GPU 資源、影響幀格穩定。', Unknown: '' },
       hags: { name: '硬體加速 GPU 排程（HAGS）', Ok: '硬體加速 GPU 排程未啟用（傳統排程）。', Info: '硬體加速 GPU 排程（HAGS）已啟用；此為中性資訊。', Unknown: '' },
+      usbSelectiveSuspend: { name: 'USB 選擇性暫停', Ok: 'AC 與電池皆已停用 USB 選擇性暫停。', Info: '', Warn: 'USB 選擇性暫停開啟中，可能造成輸入延遲；可於狀態分頁的電源微調卡片停用。', Unknown: '' },
     } as Record<string, Record<string, string>>,
   });
   $effect(() => {

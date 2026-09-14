@@ -138,6 +138,8 @@
     "TIMER_EXEMPT_BLOCKED": "此行程不在允許清單（系統/自身行程不可設定）",
     "CAPTURE_GAME_NOT_FOUND": "選定的遊戲視窗已關閉或不存在",
     "CAPTURE_ALREADY_RUNNING": "已有量測或基準測試進行中",
+    "POWER_APPLY_FAILED": "電源設定套用失敗",
+    "POWER_RESTORE_FAILED": "電源設定還原失敗",
     "unknown": "未知錯誤",
     "anticheatNote": "此遊戲受反作弊保護。請讓 PaceDock 在遊戲啟動前執行；若遊戲已在運行，請重啟遊戲。",
     "GPU_MSI_FAILED": "MSI 操作失敗。"

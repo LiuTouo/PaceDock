@@ -138,6 +138,8 @@
     "TIMER_EXEMPT_BLOCKED": "This process is not allowed (system/own processes cannot be configured)",
     "CAPTURE_GAME_NOT_FOUND": "The selected game window has closed or no longer exists",
     "CAPTURE_ALREADY_RUNNING": "A measurement or benchmark is already running",
+    "POWER_APPLY_FAILED": "Failed to apply the power setting",
+    "POWER_RESTORE_FAILED": "Failed to restore the previous power setting",
     "unknown": "Unknown error",
     "anticheatNote": "This game is anti-cheat protected. Keep PaceDock running before launching the game; if it's already running, restart the game.",
     "GPU_MSI_FAILED": "MSI operation failed."

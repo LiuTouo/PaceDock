@@ -363,6 +363,18 @@ export interface MsiStatus {
   restorable: boolean;
 }
 
+/** 電源微調種類（Usb = USB 選擇性暫停；Aspm = PCIe ASPM） */
+export type PowerTweakKind = 'Usb' | 'Aspm';
+
+/** 電源微調狀態（值 null = 讀不到；restorable = 此前由 PaceDock 套用、可還原） */
+export interface PowerTweaksStatus {
+  usbAc: number | null;
+  usbDc: number | null;
+  pcieAspm: number | null;
+  usbRestorable: boolean;
+  aspmRestorable: boolean;
+}
+
 /** 套用後落點驗證：目標驅動 ISR+DPC 實測落在釘選 LP 的佔比 */
 export interface InterruptVerification {
   verdict: 'passed' | 'failed' | 'inconclusive';

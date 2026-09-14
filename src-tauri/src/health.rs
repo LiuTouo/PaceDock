@@ -4,7 +4,9 @@
 use serde::Serialize;
 use windows::core::{GUID, PCWSTR};
 use windows::Win32::Foundation::ERROR_SUCCESS;
-use windows::Win32::System::Power::{PowerGetActiveScheme, PowerReadACValueIndex};
+use windows::Win32::System::Power::{
+    PowerGetActiveScheme, PowerReadACValueIndex, PowerReadDCValueIndex,
+};
 use windows::Win32::System::Registry::{
     RegGetValueW, HKEY, HKEY_CURRENT_USER, HKEY_LOCAL_MACHINE, RRF_RT_REG_DWORD,
 };
@@ -16,6 +18,9 @@ const GUID_ULTIMATE: GUID = GUID::from_u128(0xe9a42b02_d5df_448d_aa00_03f14749eb
 // PCI Express 電源子群組與 ASPM 設定 GUID
 const GUID_SUB_PCIEXPRESS: GUID = GUID::from_u128(0x501a4d13_42af_4429_9fd1_a8218c268e20);
 const GUID_PCIEXPRESS_ASPM: GUID = GUID::from_u128(0xee12f906_d277_404b_b6da_e5fa1a576df5);
+// USB 設定子群組與 USB 選擇性暫停設定 GUID
+const GUID_SUB_USB: GUID = GUID::from_u128(0x2a737441_1930_4402_8d77_b2bebba308a3);
+const GUID_USB_SELECTIVE_SUSPEND: GUID = GUID::from_u128(0x48e6b7a6_50f5_4782_a5d4_53bb8f07e226);
 
 /// 健檢結果狀態（PascalCase 序列化）
 #[derive(Debug, Clone, Copy, Serialize, PartialEq, Eq)]
@@ -51,6 +56,7 @@ fn collect_system_health() -> Vec<HealthCheck> {
     vec![
         check_power_plan(),
         check_pcie_aspm(),
+        check_usb_selective_suspend(),
         check_game_dvr(),
         check_hags(),
     ]
@@ -75,6 +81,21 @@ fn aspm_status(value: Option<u32>) -> (HealthStatus, String) {
         Some(v) => (HealthStatus::Warn, format!("aspm={v}")),
         None => (HealthStatus::Unknown, String::new()),
     }
+}
+
+/// USB 選擇性暫停：AC+DC 皆 0 → Ok；任一非 0 → Warn（輸入裝置可能被暫停造成延遲）；
+/// 皆讀不到 → Unknown（單邊讀到 0 視為該邊已確認關閉，同 game_dvr_status 語意）。
+fn usb_suspend_status(ac: Option<u32>, dc: Option<u32>) -> (HealthStatus, String) {
+    let on = ac.is_some_and(|v| v != 0) || dc.is_some_and(|v| v != 0);
+    let status = if on {
+        HealthStatus::Warn
+    } else {
+        match (ac, dc) {
+            (None, None) => HealthStatus::Unknown,
+            _ => HealthStatus::Ok,
+        }
+    };
+    (status, format!("usbAc={ac:?},usbDc={dc:?}"))
 }
 
 /// GameDVR：兩個登錄值皆為 0 → Ok；任一非 0 → Warn；皆讀不到 → Unknown（單邊讀到即判定）。
@@ -106,8 +127,8 @@ fn hags_status(value: Option<u32>) -> (HealthStatus, String) {
 
 // ── 探針（Win32 唯讀）─────────────────────────────────────────────────
 
-/// 目前作用中電源計畫 GUID（失敗 → None）
-fn active_scheme() -> Option<GUID> {
+/// 目前作用中電源計畫 GUID（失敗 → None）。pub(crate)：power.rs 套用/還原重用。
+pub(crate) fn active_scheme() -> Option<GUID> {
     unsafe {
         let mut scheme: *mut GUID = std::ptr::null_mut();
         if PowerGetActiveScheme(None, &mut scheme) != ERROR_SUCCESS {
@@ -117,13 +138,18 @@ fn active_scheme() -> Option<GUID> {
     }
 }
 
-/// 讀作用中計畫的 AC 電源設定索引（失敗 → None）
-fn ac_value_index(scheme: GUID, subgroup: GUID, setting: GUID) -> Option<u32> {
+/// 讀作用中計畫的 AC/DC 電源設定索引（ac=true → AC，否則 DC；失敗 → None）。
+/// pub(crate)：power.rs 套用後回讀驗證重用。
+pub(crate) fn ac_dc_value_index(scheme: GUID, subgroup: GUID, setting: GUID, ac: bool) -> Option<u32> {
     unsafe {
         let mut index = 0u32;
-        if PowerReadACValueIndex(None, Some(&scheme), Some(&subgroup), Some(&setting), &mut index)
-            != ERROR_SUCCESS
-        {
+        // windows crate 不對稱：AC 版回 WIN32_ERROR、DC 版回 u32 — 統一成 raw code 比較
+        let status = if ac {
+            PowerReadACValueIndex(None, Some(&scheme), Some(&subgroup), Some(&setting), &mut index).0
+        } else {
+            PowerReadDCValueIndex(None, Some(&scheme), Some(&subgroup), Some(&setting), &mut index)
+        };
+        if status != 0 {
             return None;
         }
         Some(index)
@@ -157,9 +183,23 @@ fn check_power_plan() -> HealthCheck {
 }
 
 fn check_pcie_aspm() -> HealthCheck {
-    let value = active_scheme().and_then(|s| ac_value_index(s, GUID_SUB_PCIEXPRESS, GUID_PCIEXPRESS_ASPM));
+    let value =
+        active_scheme().and_then(|s| ac_dc_value_index(s, GUID_SUB_PCIEXPRESS, GUID_PCIEXPRESS_ASPM, true));
     let (status, detail) = aspm_status(value);
     HealthCheck { id: "pcieAspm", status, detail }
+}
+
+fn check_usb_selective_suspend() -> HealthCheck {
+    let (ac, dc) = active_scheme()
+        .map(|s| {
+            (
+                ac_dc_value_index(s, GUID_SUB_USB, GUID_USB_SELECTIVE_SUSPEND, true),
+                ac_dc_value_index(s, GUID_SUB_USB, GUID_USB_SELECTIVE_SUSPEND, false),
+            )
+        })
+        .unwrap_or((None, None));
+    let (status, detail) = usb_suspend_status(ac, dc);
+    HealthCheck { id: "usbSelectiveSuspend", status, detail }
 }
 
 fn check_game_dvr() -> HealthCheck {
@@ -226,6 +266,19 @@ mod tests {
         // 單邊讀到 0 → Ok（該邊視為已確認關閉）
         let (st, _) = game_dvr_status(Some(0), None);
         assert_eq!(st, HealthStatus::Ok);
+    }
+
+    #[test]
+    fn usb_suspend_any_nonzero_warns() {
+        assert_eq!(usb_suspend_status(Some(0), Some(0)).0, HealthStatus::Ok);
+        assert_eq!(usb_suspend_status(Some(1), Some(0)).0, HealthStatus::Warn);
+        assert_eq!(usb_suspend_status(Some(0), Some(1)).0, HealthStatus::Warn);
+        assert_eq!(usb_suspend_status(None, None).0, HealthStatus::Unknown);
+        // 單邊讀到 0 → Ok（該邊視為已確認關閉）
+        assert_eq!(usb_suspend_status(Some(0), None).0, HealthStatus::Ok);
+        assert_eq!(usb_suspend_status(None, Some(0)).0, HealthStatus::Ok);
+        let (_, detail) = usb_suspend_status(Some(1), Some(0));
+        assert_eq!(detail, "usbAc=Some(1),usbDc=Some(0)");
     }
 
     #[test]

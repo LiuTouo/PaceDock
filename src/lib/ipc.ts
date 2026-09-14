@@ -10,6 +10,8 @@ import type {
   MsiStatus,
   DpcScan,
   InterruptVerification,
+  PowerTweaksStatus,
+  PowerTweakKind,
   SessionDetail,
   SessionSummary,
   Settings,
@@ -75,6 +77,13 @@ export const getMsiStatus = (instanceId: string) =>
   invoke<MsiStatus>('get_msi_status', { instanceId });
 export const applyMsi = (instanceId: string) => invoke<void>('apply_msi', { instanceId });
 export const restoreMsi = (instanceId: string) => invoke<void>('restore_msi', { instanceId });
+
+// 電源微調(USB 選擇性暫停 / PCIe ASPM)
+export const getPowerTweaks = () => invoke<PowerTweaksStatus>('get_power_tweaks');
+export const applyPowerTweak = (kind: PowerTweakKind) =>
+  invoke<void>('apply_power_tweak', { kind });
+export const restorePowerTweak = (kind: PowerTweakKind) =>
+  invoke<void>('restore_power_tweak', { kind });
 
 // 中斷落點驗證與 DPC 掃描
 export const verifyInterruptAffinity = (instanceId: string, expectedLps: number[]) =>

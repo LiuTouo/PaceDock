@@ -13,6 +13,7 @@ mod gpu;
 mod gpu_interrupts;
 mod health;
 mod model;
+mod power;
 mod process;
 mod state_auth;
 mod syspath;
@@ -162,6 +163,9 @@ fn main() {
             benchmark::ipc::get_msi_status,
             benchmark::ipc::apply_msi,
             benchmark::ipc::restore_msi,
+            power::get_power_tweaks,
+            power::apply_power_tweak,
+            power::restore_power_tweak,
             benchmark::ipc::restore_previous_gpu_affinity,
             benchmark::ipc::start_gpu_benchmark,
             benchmark::ipc::cancel_benchmark,

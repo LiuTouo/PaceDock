@@ -10,6 +10,7 @@
   import GpuInterrupts from '../components/GpuInterrupts.svelte';
   import SystemHealth from '../components/SystemHealth.svelte';
   import DpcScan from '../components/DpcScan.svelte';
+  import PowerTweaks from '../components/PowerTweaks.svelte';
 
   let devices = $state<GpuDevice[]>([]);
   let targets = $state<CoreTarget[]>([]);
@@ -285,6 +286,7 @@
             <button disabled={locked} onclick={() => action = 'msiRestore'}>{$t('quick.msiRestore')}</button>
           {/if}
         </section>
+        <PowerTweaks locked={locked} />
         {#if verification}
           <section class="panel card" class:ok={verification.verdict === 'passed'} class:drift={verification.verdict === 'failed'}>
             <h2>{$t('quick.cardVerify')}</h2>

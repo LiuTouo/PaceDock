@@ -94,6 +94,11 @@ pub mod codes {
     pub const CAPTURE_GAME_NOT_FOUND: &str = "CAPTURE_GAME_NOT_FOUND";
     /// 已有 capture / 基準測試進行中（共用 GPU 操作排他鎖）。
     pub const CAPTURE_ALREADY_RUNNING: &str = "CAPTURE_ALREADY_RUNNING";
+    // ── 電源微調（power.rs：USB 選擇性暫停 / PCIe ASPM）──
+    /// 電源設定寫入/提交/驗證失敗。
+    pub const POWER_APPLY_FAILED: &str = "POWER_APPLY_FAILED";
+    /// 無還原記錄或寫回原值失敗。
+    pub const POWER_RESTORE_FAILED: &str = "POWER_RESTORE_FAILED";
 }
 
 #[derive(Error, Debug, Clone, Copy, PartialEq, Eq)]
