@@ -82,7 +82,7 @@ fn game_dvr_status(
     app_capture: Option<u32>,
     dvr_enabled: Option<u32>,
 ) -> (HealthStatus, String) {
-    let on = app_capture.map_or(false, |v| v != 0) || dvr_enabled.map_or(false, |v| v != 0);
+    let on = app_capture.is_some_and(|v| v != 0) || dvr_enabled.is_some_and(|v| v != 0);
     let status = if on {
         HealthStatus::Warn
     } else {

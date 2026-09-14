@@ -1497,7 +1497,7 @@ Application,ProcessID,msBetweenPresents
     #[test]
     fn series_without_display_columns_still_parses_frames() {
         let csv = "Application,msBetweenPresents\ngame.exe,16.7\ngame.exe,8.3\n";
-        let s = parse_presentmon_series(&csv).unwrap();
+        let s = parse_presentmon_series(csv).unwrap();
         assert_eq!(s.frames, vec![16.7, 8.3]);
         assert!(s.display.intervals.is_empty());
         assert!(s.display.latencies.is_empty());

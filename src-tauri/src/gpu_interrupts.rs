@@ -399,6 +399,7 @@ impl Capture {
             ..Default::default()
         }
     }
+    #[allow(clippy::too_many_arguments)]
     fn event(
         &mut self,
         provider: GUID,

@@ -204,7 +204,7 @@ pub fn compare_baseline(winner: &LpResult, baselines: &[LpResult]) -> BaselineCo
     let metric = |f: fn(&LpResult) -> Option<f64>| -> Option<f64> {
         let vals: Vec<f64> = baselines
             .iter()
-            .filter_map(|b| f(b))
+            .filter_map(f)
             .filter(|v| v.is_finite() && *v > 0.0)
             .collect();
         (!vals.is_empty()).then(|| median(&vals))
