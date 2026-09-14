@@ -429,10 +429,10 @@ impl Capture {
             }
         } else if provider == PERF_INFO && opcode == DPC_START_OPCODE {
             // DPC 開始：InitialTime(8) + Routine(pointer)。
+            // DPC 是診斷證據、不是完整性閘：payload 異常只略過該事件，
+            // 不把整個樣本判無效（ISR 的嚴格語意維持不變）。
             if let Some(routine) = read_pointer(bytes, 8, pointer_size) {
                 self.open_dpc.insert(lp, (routine, ts));
-            } else {
-                self.invalid = true;
             }
         } else if provider == PERF_INFO && opcode == DPC_STOP_OPCODE {
             // DPC 結束：以 lp 配對進行中的 start；duration = ts 差（100ns 單位）。
@@ -474,11 +474,21 @@ impl Capture {
                 }
             }
         } else if provider == IMAGE && opcode == 2 {
-            // 模組卸載使時間外位址歸屬不可靠；此取樣不回傳猜測值。
+            // 模組卸載：目標驅動/dxgkrnl 卸載使歸屬全面不可靠 → 樣本無效；
+            // 其他模組只丟棄落在該位址範圍的歸屬資料（保守但不連坐）。
+            // 裝置重啟後驅動重載常伴隨雜訊 unload，不得因此整份作廢。
             if let Some(base) = read_pointer(bytes, 0, pointer_size) {
-                if self.modules.iter().any(|m| m.0 == base) {
+                let Some(pos) = self.modules.iter().position(|m| m.0 == base) else {
+                    return;
+                };
+                let (_, size, name) = self.modules.swap_remove(pos);
+                if name == self.driver || name == "dxgkrnl.sys" {
                     self.invalid = true;
+                    return;
                 }
+                let in_range = |r: u64| r >= base && r - base < size;
+                self.events.retain(|(r, _), _| !in_range(*r));
+                self.dpc.retain(|(r, _), _| !in_range(*r));
             }
         }
     }
@@ -784,6 +794,39 @@ mod tests {
         image(&mut data, "gpu.sys", 0x1000);
         data.event(IMAGE, 2, 2, 8, 0, 0, &0x1000u64.to_le_bytes());
         assert!(data.invalid);
+    }
+
+    /// 裝置重啟後的雜訊驅動 unload 不得連坐作廢整份樣本；
+    /// 只丟棄落在該模組位址範圍的歸屬資料。
+    #[test]
+    fn unrelated_module_unload_drops_its_data_but_keeps_sample_valid() {
+        let mut data = Capture::new("gpu.sys");
+        image(&mut data, "gpu.sys", 0x1000);
+        image(&mut data, "noise.sys", 0x9000);
+        isr(&mut data, 0x1010, 7, 1); // 目標驅動
+        isr(&mut data, 0x9010, 3, 1); // noise.sys
+        dpc_start(&mut data, 0x9010, 3, 0);
+        dpc_stop(&mut data, 3, 10_000);
+        data.event(IMAGE, 2, 2, 8, 0, 0, &0x9000u64.to_le_bytes()); // noise unload
+        assert!(!data.invalid, "無關模組 unload 不作廢樣本");
+        assert_eq!(data.counts(false).len(), 1); // 只剩目標驅動
+        assert!(data.counts(true).is_empty());
+        assert!(data.dpc_counts(false).is_empty(), "該範圍 DPC 一併丟棄");
+        let offenders = data.offenders(10);
+        assert!(offenders.iter().all(|o| o.driver != "noise.sys"));
+    }
+
+    /// DPC payload 異常只略過事件，不得作廢樣本（診斷非閘門）。
+    #[test]
+    fn malformed_dpc_start_does_not_invalidate() {
+        let mut data = Capture::new("gpu.sys");
+        image(&mut data, "gpu.sys", 0x1000);
+        data.event(PERF_INFO, DPC_START_OPCODE, 2, 8, 0, 0, &[0; 4]); // 太短
+        assert!(!data.invalid);
+        // stop 無配對 → 忽略
+        dpc_stop(&mut data, 0, 1_000);
+        assert!(!data.invalid);
+        assert!(data.dpc.is_empty());
     }
     #[test]
     fn no_observations_does_not_infer_core_zero() {
