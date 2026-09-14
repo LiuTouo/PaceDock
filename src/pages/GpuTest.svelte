@@ -3,7 +3,7 @@
   import { listen } from '@tauri-apps/api/event';
   import { locale, t } from 'svelte-i18n';
   import * as ipc from '../lib/ipc';
-  import { benchmarkProgress, benchmarkState, topology, gpuOperationBusy } from '../lib/stores';
+  import { benchmarkProgress, benchmarkState, gpuOperationBusy, settings, topology } from '../lib/stores';
   import { coreLabel, policyIndices } from '../lib/core';
   import type { AffinityPolicy, BenchmarkConfig, CoreCapture, CoreTarget, GameCaptureProgress, GameCaptureRecord, GameWindow, GpuDevice, InterruptVerification, MsiStatus, QuickSchedule, SessionDetail, SessionSummary } from '../lib/types';
   import ConfirmDialog from '../components/ConfirmDialog.svelte';
@@ -26,7 +26,7 @@
   let msi = $state<MsiStatus | null>(null);
   let verification = $state<InterruptVerification | null>(null);
   let manual = $state<number | null>(null), chosen = $state<number | null>(null);
-  let section = $state<'test' | 'results' | 'measure'>('test');
+  let section = $state<'status' | 'test' | 'diagnostics' | 'history'>('status');
   let busy = $state(false), cancelSent = $state(false);
   let error = $state(''), notice = $state('');
   let action = $state<'start' | 'apply' | 'manual' | 'restore' | 'delete' | 'delCapture' | 'msi' | 'msiRestore' | null>(null);
@@ -41,6 +41,8 @@
   const running = $derived($benchmarkState?.status === 'Running');
   const compact = $derived($benchmarkState?.windowLayout === 'CompactProgress');
   const locked = $derived(busy || running || $gpuOperationBusy || $benchmarkState?.gpuBusy);
+  // 進階模式（Settings 全域開關）：關閉時隱藏測試進階設定、狀態原始值與診斷分頁
+  const advanced = $derived($settings?.advancedMode ?? false);
   const recovery = $derived($benchmarkState?.recoveryRequired ?? false);
   const quick = $derived(detail?.summary.quick);
   const eligible = $derived(detail?.summary.status === 'Completed' && quick?.methodVersion === 3 && quick.status !== 'Insufficient' && detail.summary.captureQuality?.integrityPassed && !recovery);
@@ -93,9 +95,12 @@
     if (instance) ipc.getMsiStatus(instance).then(v => { if (active) msi = v; }).catch(() => { if (active) msi = null; });
     return () => { active = false; };
   });
+  // 進階模式關閉時不得停留在診斷分頁
+  $effect(() => {
+    if (!advanced && section === 'diagnostics') section = 'status';
+  });
   $effect(() => {
     const state = $benchmarkState;
-    if (state?.status === 'Running') { section = 'test'; return; }
     if (state?.sessionId && ['Completed', 'Failed', 'Cancelled'].includes(state.status) && state.sessionId !== handled) {
       handled = state.sessionId;
       cancelSent = false;
@@ -176,7 +181,7 @@
       const result = await ipc.getBenchmarkSession(id);
       if (serial !== loadSerial) return;
       detail = result;
-      section = 'results';
+      section = 'history';
       if (devices.some(g => g.instanceId === result.summary.gpuInstanceId)) gpu = result.summary.gpuInstanceId;
       if (result.summary.status === 'Completed' && ['Consistent', 'SingleCandidate'].includes(result.summary.quick?.status ?? '')) chosen = result.summary.quick?.retest[0]?.target.coreId ?? null;
     } catch (e) { if (serial === loadSerial) error = String(e); }
@@ -196,6 +201,7 @@
       if (pending === 'delete' && detail) { await ipc.deleteBenchmarkSession(detail.summary.id); detail = null; chosen = null; await refreshHistory(); }
       if (pending === 'delCapture' && pickA) { await ipc.deleteGameCapture(pickA); if (pickB === pickA) pickB = ''; pickA = ''; await refreshCaptures(); }
       if (pending !== 'start') notice = $t('quick.done');
+      if (pending === 'apply' || pending === 'manual') section = 'status';
       if (gpu) policy = await ipc.getGpuAffinityPolicy(gpu);
       if (gpu && (pending === 'msi' || pending === 'msiRestore')) msi = await ipc.getMsiStatus(gpu);
     } catch (e) { error = String(e); }
@@ -231,7 +237,7 @@
   {#if notice && !compact}<p role="status">{notice}</p>{/if}
   {#if recovery && !compact}<div class="panel error" role="alert">{$t('quick.recovery')}</div>{/if}
   {#if running || compact}
-    <section class="panel progress-panel" aria-live="polite">
+    <section class="panel progress-panel" class:sticky={!compact} aria-live="polite">
       <div class="progress-info">
       <h2>{cancelling ? $t('quick.cancelling') : $t('quick.running')}</h2>
       <p>{current ? label(current) : $t('quick.calibrating')}</p>
@@ -241,125 +247,140 @@
       </div>
       <button class="danger small" disabled={cancelling} aria-busy={!!cancelling} onclick={cancel}>{cancelling ? $t('quick.cancelling') : $t('quick.cancel')}</button>
     </section>
-  {:else}
+  {/if}
+  {#if !compact}
     <header><h1>{$t('quick.title')}</h1><p class="hint">{$t('quick.scope')}</p></header>
-    <div class="tabs"><button class="ghost" aria-pressed={section === 'test'} disabled={locked} onclick={() => section = 'test'}>{$t('quick.test')}</button><button class="ghost" aria-pressed={section === 'results'} disabled={locked} onclick={() => section = 'results'}>{$t('quick.history')}</button><button class="ghost" aria-pressed={section === 'measure'} disabled={locked} onclick={() => { section = 'measure'; void refreshGames(); }}>{$t('measure.tab')}</button></div>
-    <section class="panel policy-row">
-      <div><strong>{$t('quick.currentPolicy')} — {devices.find(d => d.instanceId === gpu)?.friendlyName ?? gpu}</strong><p>{policyText}</p><small>DevicePolicy: {policy?.devicePolicy.bytes?.join(', ') ?? '—'}</small></div>
-      <button disabled={locked} onclick={() => action = 'restore'}>{$t('quick.restore')}</button>
-    </section>
-    {#if driftAlert}
-      <section class="panel policy-row drift-banner">
-        <div>
-          <strong>{en ? 'Policy has been changed outside PaceDock' : '政策已被 PaceDock 以外的方式修改'}</strong>
-          <p class="hint">{en ? `Applied core no longer matches the registry (core ${$benchmarkState?.appliedCore ?? '—'}). Re-apply or restore.` : `已套用核心與 registry 不符（核心 ${$benchmarkState?.appliedCore ?? '—'}）。請重新套用或還原。`}</p>
-        </div>
-        <div class="start-row">
-          {#if $benchmarkState?.appliedCore != null}
-            <button disabled={locked} onclick={() => { manual = $benchmarkState?.appliedCore ?? null; action = 'manual'; }}>{$t('quick.apply')}</button>
+    <div class="tabs">
+      <button class="ghost" aria-pressed={section === 'status'} onclick={() => section = 'status'}>{$t('quick.tabStatus')}</button>
+      <button class="ghost" aria-pressed={section === 'test'} onclick={() => section = 'test'}>{$t('quick.test')}</button>
+      {#if advanced}<button class="ghost" aria-pressed={section === 'diagnostics'} onclick={() => section = 'diagnostics'}>{$t('quick.tabDiagnostics')}</button>{/if}
+      <button class="ghost" aria-pressed={section === 'history'} onclick={() => { section = 'history'; void refreshGames(); }}>{$t('quick.history')}</button>
+    </div>
+    {#if section === 'status'}
+      <div class="cards">
+        <section class="panel card" class:ok={!driftAlert && policy?.assignmentSetOverride.present} class:drift={driftAlert}>
+          <h2>{$t('quick.currentPolicy')} — {devices.find(d => d.instanceId === gpu)?.friendlyName ?? gpu}</h2>
+          {#if driftAlert}
+            <p class="card-status warn-text"><strong>{$t('quick.statusDrift')}</strong></p>
+            <p class="hint">{en ? `Applied core no longer matches the registry (core ${$benchmarkState?.appliedCore ?? '—'}). Re-apply or restore.` : `已套用核心與 registry 不符（核心 ${$benchmarkState?.appliedCore ?? '—'}）。請重新套用或還原。`}</p>
+            <div class="start-row">
+              {#if $benchmarkState?.appliedCore != null}
+                <button disabled={locked} onclick={() => { manual = $benchmarkState?.appliedCore ?? null; action = 'manual'; }}>{$t('quick.apply')}</button>
+              {/if}
+              <button disabled={locked} onclick={() => action = 'restore'}>{$t('quick.restore')}</button>
+            </div>
+          {:else}
+            <p class="card-status" class:ok-text={policy?.assignmentSetOverride.present}>{policy?.assignmentSetOverride.present ? $t('quick.statusOk') : $t('quick.statusInfo')}</p>
+            <p><strong>{policyText}</strong></p>
+            {#if advanced}<small>DevicePolicy: {policy?.devicePolicy.bytes?.join(', ') ?? '—'}</small>{/if}
+            <button disabled={locked} onclick={() => action = 'restore'}>{$t('quick.restore')}</button>
           {/if}
-          <button disabled={locked} onclick={() => action = 'restore'}>{$t('quick.restore')}</button>
-        </div>
-      </section>
-    {/if}
-    <section class="panel policy-row">
-      <div><strong>MSI</strong><p>{msiText}</p></div>
-      {#if msi?.value === 0}
-        <button disabled={locked} onclick={() => action = 'msi'}>{$t('quick.msiEnable')}</button>
-      {:else if msi?.restorable}
-        <button disabled={locked} onclick={() => action = 'msiRestore'}>{$t('quick.msiRestore')}</button>
-      {/if}
-    </section>
-    <GpuInterrupts instanceId={gpu} locked={!!locked} />
-    <DpcScan />
-    <SystemHealth />
-    {#if verification}
-      <section class="panel policy-row">
-        <div>
-          <strong>{en ? 'Interrupt placement check' : '中斷落點驗證'}</strong>
-          <p class="hint">{verificationText}</p>
-          {#if verification.eventsLost}<small>{en ? 'Sampling reported lost events; re-run for a definitive result.' : '取樣有遺失事件，建議重新驗證。'}</small>{/if}
-        </div>
-      </section>
-    {/if}
-    {#if section === 'test'}
+        </section>
+        <section class="panel card" class:ok={msi?.value === 1} class:warn={msi?.value === 0}>
+          <h2>MSI</h2>
+          <p class="card-status">{msiText}</p>
+          {#if msi?.value === 0}
+            <button disabled={locked} onclick={() => action = 'msi'}>{$t('quick.msiEnable')}</button>
+          {:else if msi?.restorable}
+            <button disabled={locked} onclick={() => action = 'msiRestore'}>{$t('quick.msiRestore')}</button>
+          {/if}
+        </section>
+        {#if verification}
+          <section class="panel card" class:ok={verification.verdict === 'passed'} class:drift={verification.verdict === 'failed'}>
+            <h2>{$t('quick.cardVerify')}</h2>
+            <p class="card-status">{verificationText}</p>
+            {#if verification.eventsLost}<small>{en ? 'Sampling reported lost events; re-run for a definitive result.' : '取樣有遺失事件，建議重新驗證。'}</small>{/if}
+          </section>
+        {/if}
+      </div>
+    {:else if section === 'test'}
       <section class="panel">
         <label class="field">GPU<select bind:value={gpu} disabled={locked}>{#each devices as device}<option value={device.instanceId}>{device.friendlyName}</option>{/each}</select></label>
-        <h2>{$t('quick.candidates')}</h2>
-        <p class="hint">{$t('quick.candidateHint')}</p>
-        {#if !targets.length}<p role="alert">{$t('quick.noCandidates')}</p>{/if}
-        <div class="core-grid">{#each targets as target}<label class="core-choice"><input type="checkbox" checked={selected.includes(target.coreId)} disabled={locked} onchange={e => toggle(target.coreId, e.currentTarget.checked)} />{label(target)}</label>{/each}</div>
+        {#if advanced}
+          <h2>{$t('quick.candidates')}</h2>
+          <p class="hint">{$t('quick.candidateHint')}</p>
+          {#if !targets.length}<p role="alert">{$t('quick.noCandidates')}</p>{/if}
+          <div class="core-grid">{#each targets as target}<label class="core-choice"><input type="checkbox" checked={selected.includes(target.coreId)} disabled={locked} onchange={e => toggle(target.coreId, e.currentTarget.checked)} />{label(target)}</label>{/each}</div>
+        {/if}
         <div class="start-row"><p>{#if schedule}{$t('quick.estimate', { values: { min: Math.ceil(schedule.estimatedMinSecs / 60), max: Math.ceil(schedule.estimatedMaxSecs / 60), captures: schedule.candidateCaptures } })}{:else}{$t('quick.chooseCandidates')}{/if}<br/><small>{$t('quick.estimateHint')}</small></p><button class="primary" disabled={locked || recovery || !schedule || !selected.length || !gpu} onclick={() => action = 'start'}>{$t('quick.start')}</button></div>
       </section>
-      <details class="panel"><summary>{$t('quick.advanced')}</summary>
-        <div class="form-grid">
-          <label>{$t('quick.screenWarmup')}<input type="number" min="0" max="60" bind:value={warmup} /></label>
-          <label>{$t('quick.screenSample')}<input type="number" min="1" max="120" bind:value={sample} /></label>
-          <label>{$t('quick.retestWarmup')}<input type="number" min="0" max="60" bind:value={retestWarmup} /></label>
-          <label>{$t('quick.retestSample')}<input type="number" min="1" max="120" bind:value={retestSample} /></label>
-          <label>Workload<select bind:value={workload}><option>Vulkan</option><option>D3D9</option></select></label>
-          <label>{$t('quick.width')}<input type="number" min="1" bind:value={width} /></label>
-          <label>{$t('quick.height')}<input type="number" min="1" bind:value={height} /></label>
-          <label>FPS cap<input type="number" min="0" max="10000" bind:value={fpsCap} disabled={adaptive} /></label>
-          <label><input type="checkbox" bind:checked={adaptive} />{$t('quick.adaptive')}</label>
-          <label><input type="checkbox" bind:checked={triple} />{$t('quick.triple')}</label>
-        </div>
-        <h2>{$t('quick.manual')}</h2><p class="hint">{$t('quick.untested')}</p>
-        <div class="start-row"><select aria-label={$t('quick.manual')} bind:value={manual}>{#each targets as target}<option value={target.coreId}>{label(target)}</option>{/each}</select><button disabled={locked || recovery || manual === null || !gpu} onclick={() => action = 'manual'}>{$t('quick.apply')}</button></div>
-      </details>
-    {:else if section === 'measure'}
-      <section class="panel">
-        <p class="hint">{$t('measure.hint')}</p>
-        <div class="form-grid">
-          <label class="field">{$t('measure.game')}
-            <select bind:value={captureGame} disabled={locked || capturing}>
-              <option value="" disabled hidden>{$t('measure.noGames')}</option>
-              {#each games as game}<option value={String(game.pid)}>{game.title} — {game.exeName} (PID {game.pid})</option>{/each}
-            </select>
-          </label>
-          <label class="field">{$t('measure.duration')}
-            <input type="number" min="5" max="600" bind:value={captureDuration} disabled={locked || capturing} />
-          </label>
-        </div>
-        <div class="start-row">
-          <button disabled={locked || capturing} onclick={() => void refreshGames()}>{$t('measure.refresh')}</button>
-          <button disabled={capturing} onclick={() => void ipc.cancelGameCapture().catch(() => {})}>{$t('measure.cancel')}</button>
-          <button class="primary" disabled={locked || recovery || capturing || !captureGame} onclick={startCapture}>{$t('measure.start')}</button>
-        </div>
-        {#if capturing}
-          <p role="status">{$t('measure.running')}</p>
-          <progress max="100" value={capturePct}></progress>
-        {/if}
-      </section>
-      <section class="panel">
-        <h2>{$t('measure.compare')}</h2>
-        <p class="hint">{$t('measure.compareHint')}</p>
-        {#if !captures.length}
-          <p>{$t('measure.noCaptures')}</p>
-        {:else}
+      {#if advanced}
+        <details class="panel"><summary>{$t('quick.advanced')}</summary>
           <div class="form-grid">
-            <label class="field">A
-              <select bind:value={pickA} disabled={locked || capturing}>
-                {#each captures as c}<option value={c.id}>{c.startedAt} — {c.gameTitle} ({c.durationSecs}s){#if c.lockedLp != null} · LP {c.lockedLp}{/if}</option>{/each}
+            <label>{$t('quick.screenWarmup')}<input type="number" min="0" max="60" bind:value={warmup} /></label>
+            <label>{$t('quick.screenSample')}<input type="number" min="1" max="120" bind:value={sample} /></label>
+            <label>{$t('quick.retestWarmup')}<input type="number" min="0" max="60" bind:value={retestWarmup} /></label>
+            <label>{$t('quick.retestSample')}<input type="number" min="1" max="120" bind:value={retestSample} /></label>
+            <label>Workload<select bind:value={workload}><option>Vulkan</option><option>D3D9</option></select></label>
+            <label>{$t('quick.width')}<input type="number" min="1" bind:value={width} /></label>
+            <label>{$t('quick.height')}<input type="number" min="1" bind:value={height} /></label>
+            <label>FPS cap<input type="number" min="0" max="10000" bind:value={fpsCap} disabled={adaptive} /></label>
+            <label><input type="checkbox" bind:checked={adaptive} />{$t('quick.adaptive')}</label>
+            <label><input type="checkbox" bind:checked={triple} />{$t('quick.triple')}</label>
+          </div>
+          <h2>{$t('quick.manual')}</h2><p class="hint">{$t('quick.untested')}</p>
+          <div class="start-row"><select aria-label={$t('quick.manual')} bind:value={manual}>{#each targets as target}<option value={target.coreId}>{label(target)}</option>{/each}</select><button disabled={locked || recovery || manual === null || !gpu} onclick={() => action = 'manual'}>{$t('quick.apply')}</button></div>
+        </details>
+      {/if}
+    {:else if section === 'diagnostics'}
+      <GpuInterrupts instanceId={gpu} locked={!!locked} />
+      <DpcScan />
+      <SystemHealth />
+    {:else}
+      <details open={!captures.length}>
+        <summary>{$t('measure.tab')}</summary>
+        <section class="panel">
+          <p class="hint">{$t('measure.hint')}</p>
+          <div class="form-grid">
+            <label class="field">{$t('measure.game')}
+              <select bind:value={captureGame} disabled={locked || capturing}>
+                <option value="" disabled hidden>{$t('measure.noGames')}</option>
+                {#each games as game}<option value={String(game.pid)}>{game.title} — {game.exeName} (PID {game.pid})</option>{/each}
               </select>
             </label>
-            <label class="field">B
-              <select bind:value={pickB} disabled={locked || capturing}>
-                <option value="" hidden>—</option>
-                {#each captures as c}<option value={c.id}>{c.startedAt} — {c.gameTitle} ({c.durationSecs}s){#if c.lockedLp != null} · LP {c.lockedLp}{/if}</option>{/each}
-              </select>
+            <label class="field">{$t('measure.duration')}
+              <input type="number" min="5" max="600" bind:value={captureDuration} disabled={locked || capturing} />
             </label>
           </div>
-          {#if metricRows.length}
-            <div class="table-wrap"><table>
-              <thead><tr><th></th><th>A</th><th>B</th><th>Δ</th></tr></thead>
-              <tbody>{#each metricRows as row}<tr><td>{row.label}</td><td>{fmtVal(row.a)}</td><td>{fmtVal(row.b)}</td><td>{fmtDelta(row)}</td></tr>{/each}</tbody>
-            </table></div>
+          <div class="start-row">
+            <button disabled={locked || capturing} onclick={() => void refreshGames()}>{$t('measure.refresh')}</button>
+            <button disabled={capturing} onclick={() => void ipc.cancelGameCapture().catch(() => {})}>{$t('measure.cancel')}</button>
+            <button class="primary" disabled={locked || recovery || capturing || !captureGame} onclick={startCapture}>{$t('measure.start')}</button>
+          </div>
+          {#if capturing}
+            <p role="status">{$t('measure.running')}</p>
+            <progress max="100" value={capturePct}></progress>
           {/if}
-          <button class="danger" disabled={locked || capturing || !pickA} onclick={() => action = 'delCapture'}>{$t('measure.delete')}</button>
-        {/if}
-      </section>
-    {:else}
+        </section>
+        <section class="panel">
+          <h2>{$t('measure.compare')}</h2>
+          <p class="hint">{$t('measure.compareHint')}</p>
+          {#if !captures.length}
+            <p>{$t('measure.noCaptures')}</p>
+          {:else}
+            <div class="form-grid">
+              <label class="field">A
+                <select bind:value={pickA} disabled={locked || capturing}>
+                  {#each captures as c}<option value={c.id}>{c.startedAt} — {c.gameTitle} ({c.durationSecs}s){#if c.lockedLp != null} · LP {c.lockedLp}{/if}</option>{/each}
+                </select>
+              </label>
+              <label class="field">B
+                <select bind:value={pickB} disabled={locked || capturing}>
+                  <option value="" hidden>—</option>
+                  {#each captures as c}<option value={c.id}>{c.startedAt} — {c.gameTitle} ({c.durationSecs}s){#if c.lockedLp != null} · LP {c.lockedLp}{/if}</option>{/each}
+                </select>
+              </label>
+            </div>
+            {#if metricRows.length}
+              <div class="table-wrap"><table>
+                <thead><tr><th></th><th>A</th><th>B</th><th>Δ</th></tr></thead>
+                <tbody>{#each metricRows as row}<tr><td>{row.label}</td><td>{fmtVal(row.a)}</td><td>{fmtVal(row.b)}</td><td>{fmtDelta(row)}</td></tr>{/each}</tbody>
+              </table></div>
+            {/if}
+            <button class="danger" disabled={locked || capturing || !pickA} onclick={() => action = 'delCapture'}>{$t('measure.delete')}</button>
+          {/if}
+        </section>
+      </details>
       <section class="panel">
         <label class="field">{$t('quick.history')}<select disabled={locked} value={detail?.summary.id ?? ''} onchange={e => loadResult(e.currentTarget.value)}><option value="" disabled>{$t('quick.chooseHistory')}</option>{#each history as session}<option value={session.id}>{session.startedAt} — {session.gpuName} — {$t(`quick.session.${session.status}`)}</option>{/each}</select></label>
         {#if detail}
@@ -403,9 +424,9 @@
   header h1 { margin: 0 0 8px; font-size: 24px; }
   h2 { font-size: 17px; margin: 12px 0; } h3 { font-size: 15px; }
   p { line-height: 1.6; } .hint, small { color: var(--text-secondary); }
-  .tabs, .start-row, .policy-row { display: flex; flex-wrap: wrap; align-items: center; justify-content: space-between; gap: 12px; }
+  .tabs, .start-row { display: flex; flex-wrap: wrap; align-items: center; justify-content: space-between; gap: 12px; }
   .tabs { justify-content: flex-start; }
-  .start-row > p, .policy-row > div { flex: 1 1 240px; min-width: 0; overflow-wrap: anywhere; }
+  .start-row > p { flex: 1 1 240px; min-width: 0; overflow-wrap: anywhere; }
   .start-row > select { flex: 1 1 220px; min-width: 0; }
   .field, .form-grid label { display: flex; gap: 8px; flex-direction: column; }
   .core-grid, .form-grid { display: grid; grid-template-columns: repeat(auto-fit, minmax(230px, 1fr)); gap: 12px; margin: 16px 0; }
@@ -417,12 +438,23 @@
   th:first-child, td:first-child { text-align: left; }
   progress { width: 100%; height: 10px; accent-color: var(--accent); }
   .error { color: var(--danger); }
-  .drift-banner { border-color: var(--danger); }
+  /* 狀態卡：左緣色條表健康度 */
+  .cards { display: grid; grid-template-columns: repeat(auto-fit, minmax(300px, 1fr)); gap: 12px; }
+  .card { border-left: 3px solid var(--border-default); }
+  .card h2 { margin: 0 0 4px; font-size: 15px; }
+  .card-status { margin: 0; }
+  .card.ok { border-left-color: var(--success); }
+  .card.warn { border-left-color: var(--warning); }
+  .card.drift { border-left-color: var(--danger); }
+  .ok-text { color: var(--success); }
+  .warn-text { color: var(--warning); }
+  /* 執行中 sticky 進度列：任何分頁可見 */
+  .progress-panel.sticky { position: sticky; top: 0; z-index: 10; background: var(--surface-1); }
   .compact { gap: 4px; height: 100%; min-height: 0; }
   .compact .panel { padding: 12px; }
   .compact .progress-panel { display: flex; flex-direction: column; gap: 8px; flex: 1; min-height: 0; }
   .compact .progress-info { flex: 1; min-height: 0; overflow-y: auto; overflow-wrap: anywhere; padding: 2px; }
   .compact .progress-panel > button { align-self: flex-end; }
   .compact p { margin: 6px 0; font-size: 12px; } .compact h2 { margin: 4px 0; }
-  @media (max-width: 700px) { .start-row, .policy-row { flex-wrap: wrap; } }
+  @media (max-width: 700px) { .start-row { flex-wrap: wrap; } }
 </style>

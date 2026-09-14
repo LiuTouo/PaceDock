@@ -114,6 +114,17 @@
           onchange={(e) => save({ startMinimized: e.currentTarget.checked })}
         />
       </label>
+      <label class="opt row">
+        <span>
+          {$t('settings.advancedMode')}
+          <span class="hint advanced-hint">{$t('settings.advancedModeHint')}</span>
+        </span>
+        <input
+          type="checkbox"
+          checked={$settings.advancedMode}
+          onchange={(e) => save({ advancedMode: e.currentTarget.checked })}
+        />
+      </label>
     </div>
   </section>
 
@@ -254,6 +265,7 @@
 
   .opt > span { overflow-wrap: anywhere; min-width: 0; }
   .opt select { max-width: 100%; }
+  .advanced-hint { display: block; font-size: 11.5px; }
 
 
 

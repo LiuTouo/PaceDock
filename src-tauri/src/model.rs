@@ -52,6 +52,9 @@ pub struct Settings {
     pub timer_exempt_programs: Vec<String>,
     #[serde(default = "default_theme")]
     pub theme: Theme,
+    /// 進階模式：顯示測試進階設定、狀態原始值與診斷分頁
+    #[serde(default)]
+    pub advanced_mode: bool,
 }
 
 fn default_language() -> String {
@@ -95,6 +98,7 @@ impl Default for Settings {
             high_precision_timer: false,
             timer_exempt_programs: Vec::new(),
             theme: default_theme(),
+            advanced_mode: false,
         }
     }
 }

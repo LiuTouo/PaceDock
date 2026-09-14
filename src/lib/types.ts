@@ -11,6 +11,7 @@ export interface Settings {
   highPrecisionTimer: boolean; // 常駐請求 0.5 ms timer resolution（per-process 語意）
   timerExemptPrograms: string[]; // 遊戲節流豁免名單（小寫 exe 檔名，持久化）
   theme: Theme;
+  advancedMode: boolean; // 進階模式：顯示測試進階設定、狀態原始值與診斷分頁
 }
 
 /** 高精度計時器狀態（get_timer_status） */
