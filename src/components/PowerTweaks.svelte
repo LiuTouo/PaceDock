@@ -74,6 +74,7 @@
     const kind = confirmKind;
     const op = confirmOp;
     confirmKind = null;
+    confirmOpen = false;
     if (kind) void run(kind, op);
   }
 

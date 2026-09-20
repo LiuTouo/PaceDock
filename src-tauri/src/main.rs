@@ -8,6 +8,7 @@ mod autostart;
 mod benchmark;
 mod commands;
 mod config;
+mod drift;
 mod error;
 mod gpu;
 mod gpu_interrupts;
@@ -118,6 +119,7 @@ fn main() {
             state.benchmark.attempt_startup_recovery();
             let handle = app.handle().clone();
             tray::build_tray(&handle)?;
+            drift::start(handle.clone());
 
             // --minimized（或設定 start_minimized）→ 不開主視窗，常駐系統匣
             let minimized = std::env::args().any(|a| a == "--minimized");
@@ -209,6 +211,7 @@ fn main() {
                 // 禮貌性釋放：OS 在行程結束時會自動復原 timer resolution 請求；
                 // 豁免無此保證（作用在別的行程上），正常退出時批次還原
                 tauri::RunEvent::Exit => {
+                    tray::shutdown(app);
                     timer::revert_all_exempts();
                     if timer::enabled() {
                         if let Err(e) = timer::release() {

@@ -2,9 +2,9 @@
 //! 0.2.8 移除 rules 子系統後精簡為 timer 常駐所需的最小選單。
 
 use std::sync::Arc;
+mod native;
 
 use tauri::menu::{Menu, MenuItemBuilder, PredefinedMenuItem};
-use tauri::tray::{MouseButton, MouseButtonState, TrayIconBuilder, TrayIconEvent};
 use tauri::{AppHandle, Emitter, Manager, Wry};
 
 use crate::AppState;
@@ -12,7 +12,46 @@ use crate::AppState;
 const ID_SHOW: &str = "fa_show";
 const ID_ABOUT: &str = "fa_about";
 const ID_QUIT: &str = "fa_quit";
-const TRAY_ID: &str = "main";
+
+/// 在原始圖示右下角繪製高對比紅底白色驚嘆號。
+fn status_icon(warning: bool) -> tauri::Result<tauri::image::Image<'static>> {
+    let base = tauri::image::Image::from_bytes(include_bytes!("../icons/32x32.png"))?;
+    if !warning {
+        return Ok(base);
+    }
+    let mut rgba = base.rgba().to_vec();
+    let width = base.width();
+    let height = base.height();
+    for y in 16..height {
+        for x in 16..width {
+            let dx = x as f32 - 23.5;
+            let dy = y as f32 - 23.5;
+            let distance = dx * dx + dy * dy;
+            if distance <= 64.0 {
+                let mark =
+                    (22..=25).contains(&x) && ((19..=25).contains(&y) || (27..=29).contains(&y));
+                let color = if mark || distance > 49.0 {
+                    [255, 255, 255, 255]
+                } else {
+                    [200, 30, 40, 255]
+                };
+                let offset = ((y * width + x) * 4) as usize;
+                rgba[offset..offset + 4].copy_from_slice(&color);
+            }
+        }
+    }
+    Ok(tauri::image::Image::new_owned(rgba, width, height))
+}
+
+pub(crate) fn set_drift_warning(
+    app: &AppHandle,
+    warning: bool,
+    tooltip: &str,
+) -> tauri::Result<()> {
+    native::update(app, status_icon(warning)?, tooltip.to_string())
+}
+
+pub(crate) use native::{notify, shutdown};
 
 struct TrayStrings {
     show: &'static str,
@@ -37,28 +76,8 @@ fn strings(lang: &str) -> TrayStrings {
 }
 
 pub fn build_tray(app: &AppHandle) -> tauri::Result<()> {
-    let lang = current_lang(app);
-    let menu = build_menu(app, &lang)?;
-    let icon = tauri::image::Image::from_bytes(include_bytes!("../icons/32x32.png"))?;
-
-    TrayIconBuilder::with_id(TRAY_ID)
-        .icon(icon)
-        .menu(&menu)
-        .tooltip(format!("PaceDock v{}", app.package_info().version))
-        .show_menu_on_left_click(false)
-        .on_menu_event(|app, event| handle_menu_event(app, event.id().as_ref()))
-        .on_tray_icon_event(|tray, event| {
-            if let TrayIconEvent::Click {
-                button: MouseButton::Left,
-                button_state: MouseButtonState::Up,
-                ..
-            } = event
-            {
-                crate::show_main_window(tray.app_handle());
-            }
-        })
-        .build(app)?;
-    Ok(())
+    app.on_menu_event(|app, event| handle_menu_event(app, event.id().as_ref()));
+    native::build(app, status_icon(false)?)
 }
 
 fn build_menu(app: &AppHandle, lang: &str) -> tauri::Result<Menu<Wry>> {
@@ -72,11 +91,17 @@ fn build_menu(app: &AppHandle, lang: &str) -> tauri::Result<Menu<Wry>> {
 }
 
 /// 語言切換時重建整個選單（save_settings 呼叫）
-pub fn rebuild_menu(app: &AppHandle) {
-    let lang = current_lang(app);
-    if let Ok(menu) = build_menu(app, &lang) {
-        if let Some(tray) = app.tray_by_id(TRAY_ID) {
-            let _ = tray.set_menu(Some(menu));
+pub fn rebuild_menu(_app: &AppHandle) {
+    // 原生系統匣每次右鍵都依最新語言建立選單，不持有舊語言快取。
+}
+
+fn show_context_menu(app: &AppHandle) {
+    if let (Some(window), Ok(menu)) = (
+        app.get_webview_window("main"),
+        build_menu(app, &current_lang(app)),
+    ) {
+        if let Err(e) = window.popup_menu(&menu) {
+            log::warn!("顯示系統匣選單失敗: {e}");
         }
     }
 }
@@ -107,5 +132,29 @@ fn handle_menu_event(app: &AppHandle, id: &str) {
             app.exit(0);
         }
         _ => {}
+    }
+}
+
+#[cfg(test)]
+mod drift_icon_tests {
+    use super::*;
+
+    #[test]
+    fn warning_badge_only_changes_bottom_right_and_can_be_cleared() {
+        let normal = status_icon(false).unwrap();
+        let warning = status_icon(true).unwrap();
+        assert_ne!(normal.rgba(), warning.rgba());
+        for y in 0..32 {
+            for x in 0..32 {
+                if x < 16 || y < 16 {
+                    let offset = (y * 32 + x) * 4;
+                    assert_eq!(
+                        &normal.rgba()[offset..offset + 4],
+                        &warning.rgba()[offset..offset + 4]
+                    );
+                }
+            }
+        }
+        assert_eq!(normal.rgba(), status_icon(false).unwrap().rgba());
     }
 }

@@ -405,6 +405,35 @@ pub fn set_exempt(pid: u32, exe_name: &str, enabled: bool) -> Result<(), String>
     Ok(())
 }
 
+/// 只讀已成功套用的行程（新行程由既有 3 秒 watcher 套用）。
+pub(crate) fn exemption_drift(include_self: bool) -> Option<bool> {
+    use windows::Win32::System::Threading::{GetProcessInformation, PROCESS_QUERY_LIMITED_INFORMATION};
+    let entries = list_exempts();
+    let mut pids: Vec<u32> = entries.into_iter().flat_map(|e| e.pids).collect();
+    if include_self { pids.push(std::process::id()); }
+    let mut unknown = false;
+    for pid in pids {
+        unsafe {
+            let Ok(handle) = OpenProcess(PROCESS_QUERY_LIMITED_INFORMATION, false, pid) else {
+                unknown = true;
+                continue;
+            };
+            let mut state = PROCESS_POWER_THROTTLING_STATE {
+                Version: PROCESS_POWER_THROTTLING_CURRENT_VERSION,
+                ..Default::default()
+            };
+            let read = GetProcessInformation(handle, ProcessPowerThrottling,
+                &mut state as *mut _ as *mut c_void,
+                std::mem::size_of::<PROCESS_POWER_THROTTLING_STATE>() as u32);
+            let _ = CloseHandle(handle);
+            if read.is_err() { unknown = true; continue; }
+            let flag = PROCESS_POWER_THROTTLING_IGNORE_TIMER_RESOLUTION;
+            if state.ControlMask & flag == 0 || state.StateMask & flag != 0 { return Some(true) }
+        }
+    }
+    if unknown { None } else { Some(false) }
+}
+
 /// 目前豁免清單（以程式為鍵聚合；名單內未執行者 pids 為空；順手清掉已死的 pid）。
 pub fn list_exempts() -> Vec<TimerExemptEntry> {
     let procs = crate::process::enumerate_processes();

@@ -521,10 +521,40 @@ fn load_msi_record(path: &Path) -> Result<Option<RegistryValueSnapshot>, String>
         .map_err(|e| format!("MSI 還原記錄解析失敗: {e}"))
 }
 
-/// 寫入 MSI 還原記錄（HMAC 認證）
-fn write_msi_record(path: &Path, snapshot: &RegistryValueSnapshot) -> Result<(), String> {
-    let text = serde_json::to_string_pretty(snapshot).map_err(|e| format!("序列化: {e}"))?;
-    crate::state_auth::auth_write(path, &text)
+/// 額外欄位由舊的快照 reader 忽略，保持還原記錄相容。
+fn write_msi_monitor_record(path: &Path, snapshot: &RegistryValueSnapshot, instance_id: &str) -> Result<(), String> {
+    let mut value = serde_json::to_value(snapshot).map_err(|e| e.to_string())?;
+    value["instanceId"] = serde_json::Value::String(instance_id.to_string());
+    crate::state_auth::auth_write(path, &value.to_string())
+}
+
+/// 呼叫端持有 GPU reservation。讀取失敗與無記錄分開，避免誤清警示。
+pub(crate) fn monitored_gpu_settings(backend: &dyn GpuBackend) -> Vec<(crate::drift::Setting, Option<bool>)> {
+    use crate::drift::Setting;
+    let affinity = (|| -> Result<bool, String> {
+        let path = applied_record_path();
+        if !path.try_exists().map_err(|e| e.to_string())? { return Ok(false) }
+        let Some(record) = load_applied_record(&path)? else { return Ok(false) };
+        let current = backend.read_affinity_policy(&record.instance_id).map_err(|e| e.code().to_string())?;
+        let expected = AffinityPolicy {
+            instance_id: record.instance_id,
+            device_policy: RegistryValueSnapshot::dword(DEVICE_POLICY_SINGLE_PROCESSOR),
+            assignment_set_override: RegistryValueSnapshot::binary(record.override_bytes),
+        };
+        Ok(!policy_matches(&expected, &current))
+    })();
+    let msi = (|| -> Result<bool, String> {
+        let path = msi_record_path();
+        if !path.try_exists().map_err(|e| e.to_string())? { return Ok(false) }
+        let record: serde_json::Value = serde_json::from_str(&crate::state_auth::auth_read(&path)?).map_err(|e| e.to_string())?;
+        let Some(id) = record.get("instanceId").and_then(|v| v.as_str()) else {
+            // 舊記錄沒有裝置識別，不能以目前選取的 GPU 猜測。
+            return Err("MSI record has no device identity".into());
+        };
+        let actual = backend.read_msi_supported(id).map_err(|e| e.code().to_string())?;
+        Ok(actual.as_dword() != Some(1))
+    })();
+    vec![(Setting::Gpu, affinity.ok()), (Setting::Msi, msi.ok())]
 }
 
 fn clear_msi_record(path: &Path) -> Result<(), String> {
@@ -601,10 +631,15 @@ pub fn apply_msi_to_gpu(
         .read_msi_supported(instance_id)
         .map_err(|e| ApplyError::clean(e.code()))?;
     if snapshot.as_dword() == Some(1) {
+        // 明確對此裝置重新套用時，可補齊舊版記錄的識別，保留原始還原值。
+        if let Some(original) = load_msi_record(record_path).map_err(|_| ApplyError::clean(codes::GPU_APPLY_FAILED))? {
+            write_msi_monitor_record(record_path, &original, instance_id)
+                .map_err(|_| ApplyError::clean(codes::GPU_APPLY_FAILED))?;
+        }
         return Ok(());
     }
     // 2) 先寫還原記錄（HMAC），再動 registry
-    write_msi_record(record_path, &snapshot).map_err(|e| {
+    write_msi_monitor_record(record_path, &snapshot, instance_id).map_err(|e| {
         log::error!("MSI 還原記錄寫入失敗: {e}");
         ApplyError::clean(codes::GPU_APPLY_FAILED)
     })?;
@@ -882,8 +917,7 @@ impl BenchmarkManager {
     }
 
     /// 政策漂移偵測（節流 [`DRIFT_CHECK_INTERVAL_MS`]，GPU 閒置才查）。
-    /// 搭 `get_benchmark_state` 既有輪詢，不加背景 thread；
-    /// 套用/還原後 `drift_checked_at` 歸零可強制重查（目前靠 15s 內自然到期）。
+    /// 只在真正檢查時更新時間；快取供下一次前景輪詢使用。
     fn refresh_drift(&self, s: &mut BenchmarkState) {
         if self.reservation.load(Ordering::Acquire) != OP_IDLE {
             return; // mutation/benchmark 進行中不讀 registry（剛寫入的值會誤判）
@@ -892,10 +926,12 @@ impl BenchmarkManager {
             .duration_since(std::time::UNIX_EPOCH)
             .map(|d| d.as_millis() as u64)
             .unwrap_or(0);
-        let last = self.drift_checked_at.swap(now, Ordering::Relaxed);
+        let last = self.drift_checked_at.load(Ordering::Relaxed);
         if last != 0 && now.saturating_sub(last) < DRIFT_CHECK_INTERVAL_MS {
             return;
         }
+        let Ok(_guard) = self.reserve_mutation() else { return };
+        self.drift_checked_at.store(now, Ordering::Relaxed);
         s.policy_drift = Some(check_policy_drift_at(
             self.backend.as_ref(),
             &applied_record_path(),
@@ -904,6 +940,10 @@ impl BenchmarkManager {
             .ok()
             .flatten()
             .map(|r| r.core_id);
+        if let Ok(mut cached) = self.state.write() {
+            cached.policy_drift = s.policy_drift;
+            cached.applied_core = s.applied_core;
+        }
     }
 
     /// 套用最佳 LP。recovery 未完成或已有任何 GPU 操作時封鎖。
@@ -4004,6 +4044,46 @@ mod tests {
     }
 
     // ── MSI 模式 ────────────────────────────────────────────────────────
+
+    #[test]
+    fn msi_monitor_record_preserves_device_identity_and_restore_compatibility() {
+        let dir = temp_dir("msi_monitor_record");
+        let path = dir.join("msi.json");
+        let snapshot = RegistryValueSnapshot::dword(0);
+        write_msi_monitor_record(&path, &snapshot, GPU_A).unwrap();
+        let value: serde_json::Value = serde_json::from_str(&crate::state_auth::auth_read(&path).unwrap()).unwrap();
+        assert_eq!(value["instanceId"].as_str(), Some(GPU_A));
+        assert_eq!(load_msi_record(&path).unwrap().unwrap(), snapshot);
+        std::fs::remove_dir_all(dir).unwrap();
+    }
+
+    #[test]
+    fn drift_polling_keeps_cached_result_without_postponing_next_check() {
+        let (manager, _) = manager_with_gpu(GPU_A);
+        let checked_at = std::time::SystemTime::now().duration_since(std::time::UNIX_EPOCH).unwrap().as_millis() as u64 - 1_000;
+        manager.drift_checked_at.store(checked_at, Ordering::Relaxed);
+        manager.state.write().unwrap().policy_drift = Some(DriftStatus::Drifted);
+        for _ in 0..3 {
+            assert_eq!(manager.state_snapshot().policy_drift, Some(DriftStatus::Drifted));
+            assert_eq!(manager.drift_checked_at.load(Ordering::Relaxed), checked_at);
+        }
+    }
+
+    #[test]
+    fn msi_reapply_upgrades_legacy_monitor_record_without_restarting() {
+        let dir = temp_dir("msi_monitor_upgrade");
+        let path = dir.join("msi.json");
+        let original = RegistryValueSnapshot::dword(0);
+        crate::state_auth::auth_write(&path, &serde_json::to_string(&original).unwrap()).unwrap();
+        let backend = FakeBackend::new(vec![device(GPU_A)]);
+        backend.set_msi(GPU_A, Some(1));
+        apply_msi_to_gpu(&backend, &NoopSleeper, GPU_A, &path).unwrap();
+        assert_eq!(backend.restart_count(), 0);
+        assert_eq!(load_msi_record(&path).unwrap().unwrap(), original);
+        let value: serde_json::Value = serde_json::from_str(&crate::state_auth::auth_read(&path).unwrap()).unwrap();
+        assert_eq!(value["instanceId"].as_str(), Some(GPU_A));
+        std::fs::remove_dir_all(dir).unwrap();
+    }
 
     #[test]
     fn msi_apply_enables_restarts_and_records_snapshot() {

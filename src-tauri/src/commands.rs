@@ -75,8 +75,10 @@ pub fn get_timer_global_enabled() -> Result<Option<bool>, String> {
 
 /// 一鍵寫入/刪除全域請求政策登錄值（寫入後需重開機生效）
 #[tauri::command]
-pub fn set_timer_global_enabled(enabled: bool) -> Result<(), String> {
-    crate::timer::set_global_requests(enabled)
+pub fn set_timer_global_enabled(state: State<Arc<AppState>>, enabled: bool) -> Result<(), String> {
+    let _guard = state.benchmark.reserve_mutation()?;
+    crate::timer::set_global_requests(enabled)?;
+    crate::drift::remember_global_timer(enabled)
 }
 
 /// 對程式（exe 檔名為鍵）開啟/關閉持久化 timer 節流豁免：寫入 config，

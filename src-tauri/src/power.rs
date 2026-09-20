@@ -246,6 +246,34 @@ fn restore_tweak(kind: PowerTweakKind, path: &Path) -> Result<(), String> {
 
 // ── IPC commands ────────────────────────────────────────────────────────
 
+/// 僅比對有套用記錄的項目；AC/DC 都檢查，讀取失敗保留未知狀態。
+pub(crate) fn monitored_power_settings() -> Vec<(crate::drift::Setting, Option<bool>)> {
+    use crate::drift::Setting;
+    let path = record_path();
+    let record = path.try_exists().map_err(|e| e.to_string()).and_then(|_| load_record(&path));
+    let scheme = crate::health::active_scheme();
+    [(PowerTweakKind::Usb, Setting::Usb), (PowerTweakKind::Aspm, Setting::Aspm)]
+        .into_iter()
+        .map(|(kind, setting)| {
+            let drift = match &record {
+                Err(_) => None,
+                Ok(record) => {
+                    let managed = record.as_ref().is_some_and(|r| match kind {
+                        PowerTweakKind::Usb => r.usb.is_some(),
+                        PowerTweakKind::Aspm => r.aspm.is_some(),
+                    });
+                    if !managed { Some(false) } else {
+                        let (sub, key) = kind.guids();
+                        let ac = scheme.and_then(|s| crate::health::ac_dc_value_index(s, sub, key, true));
+                        let dc = scheme.and_then(|s| crate::health::ac_dc_value_index(s, sub, key, false));
+                        crate::drift::disabled_power_drift(ac, dc)
+                    }
+                }
+            };
+            (setting, drift)
+        }).collect()
+}
+
 /// 查詢 USB 選擇性暫停與 PCIe ASPM 目前值（唯讀；不需排他權）。
 /// 值讀不到 → 該欄位 null；還原記錄被篡改 → Err（fail-closed）。
 #[tauri::command]
