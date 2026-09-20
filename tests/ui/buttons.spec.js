@@ -1,5 +1,21 @@
 import { test, expect } from '@playwright/test';
+import { readFileSync } from 'node:fs';
 import { mockTauri } from './mock-tauri.js';
+
+const messages = Object.fromEntries(['zh-TW', 'en'].map(language => [
+  language, JSON.parse(readFileSync(new URL(`../../src/i18n/${language}.json`, import.meta.url), 'utf8')),
+]));
+
+async function openGpuSection(page, name) {
+  const button = page.locator('.tabs').getByRole('button', { name, exact: true });
+  await button.click();
+  await expect(button).toHaveAttribute('aria-pressed', 'true');
+}
+
+test.afterEach(async ({ page }) => {
+  // App code may catch IPC errors; pageerror alone cannot detect stale fixtures.
+  expect(await page.evaluate(() => window.__uiMock?.unexpected ?? [])).toEqual([]);
+});
 
 // Measure computed colors (including color-mix and ancestor alpha), not token strings.
 async function inspect(button) {
@@ -105,33 +121,43 @@ async function boot(page, options) {
 for (const theme of ['Dark', 'Light']) {
   for (const language of ['zh-TW', 'en']) {
     test(`${theme} ${language}: all pages and button interaction states`, async ({ page }, testInfo) => {
+      const text = messages[language];
       const errors = [];
       page.on('pageerror', error => errors.push(error.message));
       await page.setViewportSize({ width: 1280, height: 720 });
       await boot(page, { theme, language });
-      await expect(page.locator('.start-row .primary').first()).toBeEnabled();
+      await expect(page.locator('.tabs').getByRole('button', { name: text.quick.tabStatus, exact: true })).toHaveAttribute('aria-pressed', 'true');
+      await expect(page.locator('.tabs').getByRole('button', { name: text.quick.tabDiagnostics, exact: true })).toHaveCount(0);
+      await expect(page.getByRole('alert')).toHaveCount(0);
+      await audit(page);
+      await openGpuSection(page, text.quick.test);
+      const start = page.getByRole('button', { name: text.quick.start, exact: true });
+      await expect(start).toBeEnabled();
       await audit(page);
 
       // Normal and destructive confirmation dialogs use the same variant contract.
-      await page.locator('.start-row .primary').first().click();
+      await start.click();
       await expect(page.locator('.dialog button').first()).toBeFocused();
       await audit(page, page.locator('.dialog'));
       await page.keyboard.press('Escape');
 
-      await page.locator('.tabs button').nth(1).click();
-      await page.locator('.gpu-page > .panel .field select').last().selectOption('session-1');
-      await expect(page.locator('.gpu-page button.danger')).toBeVisible();
+      await openGpuSection(page, text.quick.history);
+      await page.getByRole('combobox', { name: text.quick.history, exact: true }).selectOption('session-1');
+      const deleteSession = page.getByRole('button', { name: text.quick.delete, exact: true });
+      await expect(deleteSession).toBeVisible();
       await audit(page);
-      await page.locator('.gpu-page button.danger').click();
+      await deleteSession.click();
       await expect(page.locator('.dialog button.primary')).toHaveClass(/danger/);
       await audit(page, page.locator('.dialog'));
       await page.keyboard.press('Escape');
 
-      await page.locator('.tabs button').nth(2).click();
-      await page.locator('.form-grid select').nth(1).selectOption('capture-1');
-      await page.locator('.form-grid select').nth(2).selectOption('capture-2');
+      const measurement = page.locator('details').filter({ has: page.locator('summary', { hasText: text.measure.tab }) });
+      await measurement.locator('summary').click();
+      await expect(measurement).toHaveAttribute('open', '');
+      await measurement.getByRole('combobox', { name: 'A', exact: true }).selectOption('capture-1');
+      await measurement.getByRole('combobox', { name: 'B', exact: true }).selectOption('capture-2');
       await audit(page);
-      await page.locator('.gpu-page button.danger').click();
+      await measurement.getByRole('button', { name: text.measure.delete, exact: true }).click();
       await expect(page.locator('.dialog button.primary')).toHaveClass(/danger/);
       await audit(page, page.locator('.dialog'));
       await page.keyboard.press('Escape');
@@ -148,6 +174,7 @@ for (const theme of ['Dark', 'Light']) {
       await page.evaluate(() => window.__uiMock.release.get_timer_status());
 
       await page.locator('.nav-btn').nth(2).click();
+      await page.getByRole('checkbox', { name: `${text.settings.advancedMode} ${text.settings.advancedModeHint}`, exact: true }).check();
       await audit(page);
       await page.locator('.settings-section button.primary').click();
       await audit(page, page.locator('.dialog'));
@@ -167,7 +194,10 @@ for (const theme of ['Dark', 'Light']) {
       await audit(page);
       await page.locator('.nav-btn').first().click();
       await audit(page);
-      await page.locator('.tabs button').nth(2).click();
+      await openGpuSection(page, text.quick.test);
+      await page.locator('summary').filter({ hasText: text.quick.advanced }).click();
+      await audit(page);
+      await openGpuSection(page, text.quick.tabDiagnostics);
       await audit(page);
       await page.evaluate(() => window.__uiMock.emit('show-about', null));
       await expect(page.getByRole('dialog')).toBeVisible();
@@ -196,15 +226,18 @@ for (const theme of ['Dark', 'Light']) {
 }
 
 test('keyboard activation, locked navigation, and modal focus', async ({ page }) => {
+  const text = messages.en;
   await page.setViewportSize({ width: 1280, height: 720 });
-  await boot(page, { theme: 'Dark', language: 'en' });
+  await boot(page, { theme: 'Dark', language: 'en', advancedMode: true });
   await page.locator('.nav-btn').nth(1).focus();
   await page.keyboard.press('Enter');
   await expect(page.locator('.exempt-list')).toBeVisible();
   await page.locator('.nav-btn').first().focus();
   await page.keyboard.press('Space');
   await expect(page.locator('.tabs')).toBeVisible();
-  const start = page.locator('.start-row .primary').first();
+  await page.locator('.tabs').getByRole('button', { name: text.quick.test, exact: true }).focus();
+  await page.keyboard.press('Enter');
+  const start = page.getByRole('button', { name: text.quick.start, exact: true });
   await expect(start).toBeEnabled();
   await start.click();
   const cancel = page.locator('.dialog button').first();
@@ -216,6 +249,7 @@ test('keyboard activation, locked navigation, and modal focus', async ({ page })
   await expect(cancel).toBeFocused();
   await page.keyboard.press('Escape');
   await expect(start).toBeFocused();
+  await openGpuSection(page, text.quick.tabDiagnostics);
   await page.evaluate(() => { window.__uiMock.blocked.push('sample_gpu_interrupts'); });
   await page.locator('.interrupt-panel button').click();
   await expect(page.locator('.interrupt-panel button')).toBeDisabled();
@@ -225,4 +259,8 @@ test('keyboard activation, locked navigation, and modal focus', async ({ page })
   await readable(page.locator('.nav-btn').nth(1));
   await page.locator('.nav-btn').nth(1).evaluate(el => el.click());
   await expect(page.locator('.tabs')).toBeVisible();
+  await page.evaluate(() => window.__uiMock.release.sample_gpu_interrupts());
+  await expect(page.locator('.interrupt-panel button')).toBeEnabled();
+  await expect(page.locator('.nav-btn').nth(1)).toBeEnabled();
+  await expect(page.locator('.nav-btn').nth(2)).toBeEnabled();
 });

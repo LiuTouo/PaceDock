@@ -1,5 +1,5 @@
 // Browser-only IPC fixture: never calls native commands or modifies system settings.
-export function mockTauri({ theme, language, compact = false }) {
+export function mockTauri({ theme, language, compact = false, advancedMode = false }) {
   const callbacks = new Map();
   const listeners = new Map();
   let nextId = 1;
@@ -16,13 +16,14 @@ export function mockTauri({ theme, language, compact = false }) {
     gpuBusy: false, recoveryRequired: false, sessionId: null, progressPct: 50,
     currentTarget: target, cancelRequested: false, currentPhase: 'Screening', cancelStage: 'requested' };
   const settings = { theme, language, startWithWindows: false, startMinimized: false,
-    closeToTray: true, highPrecisionTimer: false, timerExemptPrograms: [], pollIntervalMs: 1000 };
+    closeToTray: true, highPrecisionTimer: false, timerExemptPrograms: [], pollIntervalMs: 1000,
+    advancedMode };
   const emit = (event, payload) => {
     for (const [id, listener] of listeners) {
       if (listener.event === event) callbacks.get(listener.handler)?.({ event, id, payload });
     }
   };
-  window.__uiMock = { state, emit, calls: [], blocked: [], release: {} };
+  window.__uiMock = { state, emit, calls: [], unexpected: [], blocked: [], release: {} };
   window.__TAURI_EVENT_PLUGIN_INTERNALS__ = { unregisterListener: () => {} };
   window.__TAURI_INTERNALS__ = {
     transformCallback(callback) { const id = nextId++; callbacks.set(id, callback); return id; },
@@ -41,6 +42,9 @@ export function mockTauri({ theme, language, compact = false }) {
         case 'get_core_candidates': return [target];
         case 'get_benchmark_state': return { ...state };
         case 'get_gpu_affinity_policy': return { devicePolicy: { bytes: [0] }, assignmentSetOverride: { present: false } };
+        case 'get_msi_status': return { value: 0, restorable: false };
+        case 'get_power_tweaks': return { usbAc: 1, usbDc: 1, pcieAspm: 1, usbRestorable: false, aspmRestorable: false };
+        case 'get_system_health': return [{ id: 'powerPlan', status: 'Ok', detail: '' }];
         case 'get_quick_schedule': return { estimatedMinSecs: 60, estimatedMaxSecs: 120, candidateCaptures: 3 };
         case 'list_benchmark_sessions': return [summary];
         case 'get_benchmark_session': return { summary };
@@ -55,7 +59,9 @@ export function mockTauri({ theme, language, compact = false }) {
         case 'sample_gpu_interrupts': return { instanceId: 'gpu-1', driver: 'example.sys', cpus: [], graphicsKernelCpus: [], sampleSecs: 3, eventsLost: 0 };
         case 'cancel_benchmark': state.cancelRequested = true; return;
         case 'open_data_folder': return;
-        default: throw new Error(`Unexpected UI test IPC: ${cmd}`);
+        default:
+          window.__uiMock.unexpected.push(cmd);
+          throw new Error(`Unexpected UI test IPC: ${cmd}`);
       }
     },
   };
