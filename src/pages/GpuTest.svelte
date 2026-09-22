@@ -1,6 +1,5 @@
 <script lang="ts">
   import { onMount } from "svelte";
-  import { listen } from "@tauri-apps/api/event";
   import { locale, t } from "svelte-i18n";
   import * as ipc from "../lib/ipc";
   import {
@@ -14,11 +13,7 @@
   import type {
     AffinityPolicy,
     BenchmarkConfig,
-    CoreCapture,
     CoreTarget,
-    GameCaptureProgress,
-    GameCaptureRecord,
-    GameWindow,
     GpuDevice,
     InterruptVerification,
     MsiStatus,
@@ -31,6 +26,8 @@
   import SystemHealth from "../components/SystemHealth.svelte";
   import DpcScan from "../components/DpcScan.svelte";
   import PowerTweaks from "../components/PowerTweaks.svelte";
+  import GameCapture from "./game/GameCapture.svelte";
+  import HistoryTab from "./gpu/HistoryTab.svelte";
 
   let devices = $state<GpuDevice[]>([]);
   let targets = $state<CoreTarget[]>([]);
@@ -70,15 +67,9 @@
     | "msiRestore"
     | null
   >(null);
-  // 遊戲量測狀態
-  let games = $state<GameWindow[]>([]);
-  let captureGame = $state("");
-  let captureDuration = $state(30);
-  let capturing = $state(false),
-    capturePct = $state(0);
-  let captures = $state<GameCaptureRecord[]>([]);
-  let pickA = $state(""),
-    pickB = $state("");
+  // 遊戲量測區塊 ref(僅 history 分頁掛載)與待刪除的量測紀錄 id
+  let gameCapture = $state<GameCapture>();
+  let captureDeleteId = $state("");
   let handled = $state("");
   const running = $derived($benchmarkState?.status === "Running");
   const compact = $derived($benchmarkState?.windowLayout === "CompactProgress");
@@ -246,19 +237,10 @@
   });
   onMount(() => {
     void initialize();
-    let unlisten: (() => void) | null = null;
-    void listen<GameCaptureProgress>("game-capture-progress", (e) => {
-      if (e.payload.stage === "done") {
-        capturing = false;
-        void refreshCaptures();
-      } else if (e.payload.stage === "cancelled") capturing = false;
-      else capturePct = e.payload.percentage;
-    }).then((fn) => {
-      unlisten = fn;
-    });
-    return () => {
-      unlisten?.();
-    };
+  });
+  // 進入 history 分頁時刷新遊戲清單(區塊掛載後才可呼叫)
+  $effect(() => {
+    if (section === "history") void gameCapture?.refreshGames();
   });
   async function initialize() {
     try {
@@ -270,121 +252,9 @@
       selected = targets.map((c) => c.coreId);
       manual = targets[0]?.coreId ?? null;
       await refreshHistory();
-      await Promise.all([refreshGames(), refreshCaptures()]);
     } catch (e) {
       error = String(e);
     }
-  }
-  async function refreshGames() {
-    try {
-      games = await ipc.listGameWindows();
-      if (!games.some((g) => String(g.pid) === captureGame))
-        captureGame = games[0] ? String(games[0].pid) : "";
-    } catch (e) {
-      error = String(e);
-    }
-  }
-  async function refreshCaptures() {
-    try {
-      captures = await ipc.listGameCaptures();
-    } catch (e) {
-      error = String(e);
-    }
-  }
-  async function startCapture() {
-    const game = games.find((g) => String(g.pid) === captureGame);
-    if (!game || capturing || locked) return;
-    capturing = true;
-    capturePct = 0;
-    error = "";
-    notice = "";
-    try {
-      const record = await ipc.startGameCapture(
-        game.pid,
-        game.title,
-        captureDuration,
-        gpu || null,
-      );
-      await refreshCaptures();
-      pickA = record.id;
-      if (!pickB || pickB === record.id)
-        pickB = captures.find((c) => c.id !== record.id)?.id ?? "";
-      notice = $t("quick.done");
-    } catch (e) {
-      if (String(e) !== "cancelled") error = String(e);
-    } finally {
-      capturing = false;
-    }
-  }
-  type MetricRow = {
-    label: string;
-    a: number | null;
-    b: number | null;
-    relative: boolean;
-  };
-  const metricRows = $derived.by<MetricRow[]>(() => {
-    const a = captures.find((c) => c.id === pickA);
-    const b = captures.find((c) => c.id === pickB);
-    if (!a || !b || a.id === b.id) return [];
-    return [
-      {
-        label: "Avg FPS",
-        a: a.metrics.avgFps,
-        b: b.metrics.avgFps,
-        relative: true,
-      },
-      {
-        label: "1% low",
-        a: a.metrics.p1Low,
-        b: b.metrics.p1Low,
-        relative: true,
-      },
-      {
-        label: "0.1% low",
-        a: a.metrics.p01Low,
-        b: b.metrics.p01Low,
-        relative: true,
-      },
-      {
-        label: "MAD %",
-        a: a.metrics.frametimeMadPct,
-        b: b.metrics.frametimeMadPct,
-        relative: false,
-      },
-      {
-        label: "Spike %",
-        a: a.metrics.spikeRatePct,
-        b: b.metrics.spikeRatePct,
-        relative: false,
-      },
-      {
-        label: $t("measure.rowDisplayP99"),
-        a: a.metrics.displayLatencyP99Ms,
-        b: b.metrics.displayLatencyP99Ms,
-        relative: false,
-      },
-      {
-        label: $t("measure.rowDropped"),
-        a: a.metrics.droppedPct,
-        b: b.metrics.droppedPct,
-        relative: false,
-      },
-      {
-        label: "Frames",
-        a: a.metrics.sampleCount,
-        b: b.metrics.sampleCount,
-        relative: false,
-      },
-    ];
-  });
-  function fmtVal(v: number | null) {
-    return v == null ? "—" : Number.isInteger(v) ? String(v) : v.toFixed(1);
-  }
-  function fmtDelta(row: MetricRow) {
-    if (row.a == null || row.b == null || row.b === 0) return "—";
-    return row.relative
-      ? `${(((row.a - row.b) / row.b) * 100).toFixed(1)}%`
-      : `${(row.a - row.b).toFixed(1)}`;
   }
   async function refreshHistory() {
     try {
@@ -451,11 +321,10 @@
         chosen = null;
         await refreshHistory();
       }
-      if (pending === "delCapture" && pickA) {
-        await ipc.deleteGameCapture(pickA);
-        if (pickB === pickA) pickB = "";
-        pickA = "";
-        await refreshCaptures();
+      if (pending === "delCapture" && captureDeleteId) {
+        await ipc.deleteGameCapture(captureDeleteId);
+        await gameCapture?.captureDeleted(captureDeleteId);
+        captureDeleteId = "";
       }
       if (pending !== "start") notice = $t("quick.done");
       if (pending === "apply" || pending === "manual") section = "status";
@@ -519,8 +388,9 @@
   function toggle(id: number, checked: boolean) {
     selected = checked ? [...selected, id] : selected.filter((c) => c !== id);
   }
-  function number(value: number | null | undefined) {
-    return value == null ? "—" : value.toFixed(3);
+  function requestCaptureDelete(captureId: string) {
+    captureDeleteId = captureId;
+    action = "delCapture";
   }
 </script>
 
@@ -595,10 +465,7 @@
       <button
         class="ghost"
         aria-pressed={section === "history"}
-        onclick={() => {
-          section = "history";
-          void refreshGames();
-        }}>{$t("quick.history")}</button
+        onclick={() => (section = "history")}>{$t("quick.history")}</button
       >
     </div>
     {#if section === "status"}
@@ -833,248 +700,31 @@
       <DpcScan />
       <SystemHealth />
     {:else}
-      <details open={!captures.length}>
-        <summary>{$t("measure.tab")}</summary>
-        <section class="panel">
-          <p class="hint">{$t("measure.hint")}</p>
-          <div class="form-grid">
-            <label class="field"
-              >{$t("measure.game")}
-              <select bind:value={captureGame} disabled={locked || capturing}>
-                <option value="" disabled hidden>{$t("measure.noGames")}</option
-                >
-                {#each games as game}<option value={String(game.pid)}
-                    >{game.title} — {game.exeName} (PID {game.pid})</option
-                  >{/each}
-              </select>
-            </label>
-            <label class="field"
-              >{$t("measure.duration")}
-              <input
-                type="number"
-                min="5"
-                max="600"
-                bind:value={captureDuration}
-                disabled={locked || capturing}
-              />
-            </label>
-          </div>
-          <div class="start-row">
-            <button
-              disabled={locked || capturing}
-              onclick={() => void refreshGames()}
-              >{$t("measure.refresh")}</button
-            >
-            <button
-              disabled={capturing}
-              onclick={() => void ipc.cancelGameCapture().catch(() => {})}
-              >{$t("measure.cancel")}</button
-            >
-            <button
-              class="primary"
-              disabled={locked || recovery || capturing || !captureGame}
-              onclick={startCapture}>{$t("measure.start")}</button
-            >
-          </div>
-          {#if capturing}
-            <p role="status">{$t("measure.running")}</p>
-            <progress max="100" value={capturePct}></progress>
-          {/if}
-        </section>
-        <section class="panel">
-          <h2>{$t("measure.compare")}</h2>
-          <p class="hint">{$t("measure.compareHint")}</p>
-          {#if !captures.length}
-            <p>{$t("measure.noCaptures")}</p>
-          {:else}
-            <div class="form-grid">
-              <label class="field"
-                >A
-                <select bind:value={pickA} disabled={locked || capturing}>
-                  {#each captures as c}<option value={c.id}
-                      >{c.startedAt} — {c.gameTitle} ({c.durationSecs}s){#if c.lockedLp != null}
-                        · LP {c.lockedLp}{/if}</option
-                    >{/each}
-                </select>
-              </label>
-              <label class="field"
-                >B
-                <select bind:value={pickB} disabled={locked || capturing}>
-                  <option value="" hidden>—</option>
-                  {#each captures as c}<option value={c.id}
-                      >{c.startedAt} — {c.gameTitle} ({c.durationSecs}s){#if c.lockedLp != null}
-                        · LP {c.lockedLp}{/if}</option
-                    >{/each}
-                </select>
-              </label>
-            </div>
-            {#if metricRows.length}
-              <div class="table-wrap">
-                <table>
-                  <thead><tr><th></th><th>A</th><th>B</th><th>Δ</th></tr></thead
-                  >
-                  <tbody
-                    >{#each metricRows as row}<tr
-                        ><td>{row.label}</td><td>{fmtVal(row.a)}</td><td
-                          >{fmtVal(row.b)}</td
-                        ><td>{fmtDelta(row)}</td></tr
-                      >{/each}</tbody
-                  >
-                </table>
-              </div>
-            {/if}
-            <button
-              class="danger"
-              disabled={locked || capturing || !pickA}
-              onclick={() => (action = "delCapture")}
-              >{$t("measure.delete")}</button
-            >
-          {/if}
-        </section>
-      </details>
-      <section class="panel">
-        <label class="field"
-          >{$t("quick.history")}<select
-            disabled={locked}
-            value={detail?.summary.id ?? ""}
-            onchange={(e) => loadResult(e.currentTarget.value)}
-            ><option value="" disabled>{$t("quick.chooseHistory")}</option
-            >{#each history as session}<option value={session.id}
-                >{session.startedAt} — {session.gpuName} — {$t(
-                  `quick.session.${session.status}`,
-                )}</option
-              >{/each}</select
-          ></label
-        >
-        {#if detail}
-          <h2>{detail.summary.gpuName}</h2>
-          <p>{$t(`quick.session.${detail.summary.status}`)}</p>
-          {#if detail.summary.error}<p class="error" role="alert">
-              {$t(`errors.${detail.summary.error}`, {
-                default: detail.summary.error,
-              })}
-            </p>{/if}
-          {#if quick}
-            <h2>{$t(`quick.ranking.${quick.status}`)}</h2>
-            <p>
-              {$t("quick.gapHint")}{#if quick.relativeGapPct != null}
-                ({number(quick.relativeGapPct)}%){/if}
-            </p>
-            {#if quick.status === "Close" || quick.status === "Reversed"}<p>
-                {$t("quick.manualChoice")}
-              </p>{/if}
-            <h3>{$t("quick.retestResults")}</h3>
-            {@render resultTable(quick.retest, true)}
-            {#if quick.baseline}
-              <section class="baseline-banner">
-                <p>
-                  <strong
-                    >{$t(`quick.baseline.${quick.baseline.verdict}`)}</strong
-                  >{#if quick.baseline.p1ImprovementPct != null}
-                    · {quick.baseline.p1ImprovementPct >= 0
-                      ? "+"
-                      : ""}{quick.baseline.p1ImprovementPct.toFixed(1)}% 1% low{/if}{#if quick.baseline.avgImprovementPct != null}
-                    · {quick.baseline.avgImprovementPct >= 0
-                      ? "+"
-                      : ""}{quick.baseline.avgImprovementPct.toFixed(1)}% Avg
-                    FPS{/if}
-                </p>
-                <p class="hint">{$t("quick.baseline.hint")}</p>
-              </section>
-            {:else}
-              <p class="hint">{$t("quick.baseline.none")}</p>
-            {/if}
-            <button
-              class="primary"
-              disabled={locked || !eligible || chosen === null}
-              onclick={() => (action = "apply")}
-              >{$t("quick.applySelected")}</button
-            >
-            <details>
-              <summary>{$t("quick.screenResults")}</summary
-              >{@render resultTable(quick.screening, false)}
-            </details>
-            <details>
-              <summary>{$t("quick.order")}</summary>
-              <p>Seed: {quick.seed}</p>
-              <p>
-                {$t("quick.screenResults")}: {quick.screeningOrder
-                  .map((id) => quick.candidates.find((c) => c.coreId === id))
-                  .filter((c): c is CoreTarget => !!c)
-                  .map(label)
-                  .join(" → ")}
-              </p>
-              <p>
-                {$t("quick.retestResults")}: {quick.retestOrder
-                  .map((id) => quick.candidates.find((c) => c.coreId === id))
-                  .filter((c): c is CoreTarget => !!c)
-                  .map(label)
-                  .join(" → ")}
-              </p>
-            </details>
-          {:else}
-            <p>{$t("quick.legacy")}</p>
-            <div class="table-wrap">
-              <table>
-                <thead
-                  ><tr><th>LP</th><th>Avg FPS</th><th>1% low</th></tr></thead
-                ><tbody
-                  >{#each detail.results as row}<tr
-                      ><td>LP {row.lp}</td><td>{number(row.avgFps)}</td><td
-                        >{number(row.p1Low)}</td
-                      ></tr
-                    >{/each}</tbody
-                >
-              </table>
-            </div>
-          {/if}
-          <button
-            class="danger"
-            disabled={locked}
-            onclick={() => (action = "delete")}>{$t("quick.delete")}</button
-          >
-        {:else}<p>{$t("quick.chooseHistory")}</p>{/if}
-      </section>
+      <GameCapture
+        bind:this={gameCapture}
+        {locked}
+        {recovery}
+        {gpu}
+        onError={(message) => (error = message)}
+        onNotice={(message) => (notice = message)}
+        requestDelete={requestCaptureDelete}
+      />
+      <HistoryTab
+        {locked}
+        {eligible}
+        {quick}
+        {history}
+        {detail}
+        bind:chosen
+        {label}
+        onSelect={(id) => void loadResult(id)}
+        onApply={() => (action = "apply")}
+        onDelete={() => (action = "delete")}
+      />
     {/if}
   {/if}
 </div>
 
-{#snippet resultTable(rows: CoreCapture[], selectable: boolean)}
-  <div class="table-wrap">
-    <table>
-      <thead
-        ><tr
-          ><th>{$t("quick.core")}</th><th>{$t("quick.score")}</th><th
-            >Avg FPS</th
-          ><th>1% low</th><th>0.1% low</th><th>MAD %</th><th>Spike %</th><th
-            >{$t("quick.colDisplayP99")}</th
-          ><th>{$t("quick.colDropped")}</th></tr
-        ></thead
-      ><tbody
-        >{#each rows as row}<tr
-            ><td
-              >{#if selectable}<label
-                  ><input
-                    type="radio"
-                    name="result-core"
-                    value={row.target.coreId}
-                    bind:group={chosen}
-                    disabled={locked || !eligible}
-                  />{label(row.target)}</label
-                >{:else}{label(row.target)}{/if}</td
-            ><td>{number(row.score)}</td><td>{number(row.metrics.avgFps)}</td
-            ><td>{number(row.metrics.p1Low)}</td><td
-              >{number(row.metrics.p01Low)}</td
-            ><td>{number(row.metrics.frametimeMadPct)}</td><td
-              >{number(row.metrics.spikeRatePct)}</td
-            ><td>{number(row.metrics.displayLatencyP99Ms)}</td><td
-              >{number(row.metrics.droppedPct)}</td
-            ></tr
-          >{/each}</tbody
-      >
-    </table>
-  </div>
-{/snippet}
 <ConfirmDialog
   open={action !== null}
   title={$t("quick.confirm")}
@@ -1100,9 +750,6 @@
   h2 {
     font-size: 17px;
     margin: 12px 0;
-  }
-  h3 {
-    font-size: 15px;
   }
   p {
     line-height: 1.6;
@@ -1159,26 +806,6 @@
   }
   select {
     max-width: 100%;
-  }
-  .table-wrap {
-    overflow-x: auto;
-    margin: 14px 0;
-  }
-  table {
-    border-collapse: collapse;
-    width: 100%;
-    font-variant-numeric: tabular-nums;
-  }
-  th,
-  td {
-    padding: 10px;
-    border-bottom: 1px solid var(--border-default);
-    text-align: right;
-    white-space: nowrap;
-  }
-  th:first-child,
-  td:first-child {
-    text-align: left;
   }
   progress {
     width: 100%;
