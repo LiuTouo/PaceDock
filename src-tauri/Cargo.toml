@@ -1,6 +1,6 @@
 [package]
 name = "pacedock"
-version = "0.3.8"
+version = "0.3.9"
 description = "PaceDock - GPU physical-core tuning tool"
 edition = "2021"
 rust-version = "1.80"
