@@ -139,8 +139,10 @@ fn is_candidate(
 }
 
 /// exe 檔名是否在排除清單（timer 節流豁免的開 handle 防線也用這份）。
+/// 另外涵蓋目前執行檔自身的檔名：更名版 exe 改名後，清單內的舊名擋不到自身。
 pub(crate) fn is_blacklisted(exe: &str) -> bool {
     EXE_BLACKLIST.iter().any(|b| b.eq_ignore_ascii_case(exe))
+        || crate::process::self_exe_name().eq_ignore_ascii_case(exe)
 }
 
 unsafe extern "system" fn enum_trampoline(hwnd: HWND, lparam: LPARAM) -> BOOL {
@@ -548,6 +550,15 @@ mod tests {
             199,
             31
         )));
+    }
+
+    #[test]
+    fn blacklist_covers_current_exe_name() {
+        // 更名版：目前執行檔（測試中即測試 binary）的名稱必須被排除，大小寫不敏感
+        let self_name = crate::process::self_exe_name();
+        assert!(!self_name.is_empty());
+        assert!(is_blacklisted(&self_name));
+        assert!(is_blacklisted(&self_name.to_uppercase()));
     }
 
     #[test]

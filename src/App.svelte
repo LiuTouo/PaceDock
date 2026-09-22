@@ -154,7 +154,7 @@
 <div class="shell" class:compact>
   <!-- 側欄導覽（compact progress 模式隱藏） -->
   {#if !compact}
-    <nav class="sidebar" aria-label={$t("nav.settings")}>
+    <nav class="sidebar" aria-label={$t("nav.title")}>
       <div class="brand">
         <svg class="brand-icon" viewBox="0 0 24 24" aria-hidden="true">
           <path

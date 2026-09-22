@@ -4,6 +4,7 @@
     "confirm": "Confirm"
   },
   "nav": {
+    "title": "Main navigation",
     "gpuTest": "GPU tuning",
     "timer": "High-precision timer",
     "settings": "Settings"
@@ -205,10 +206,14 @@
     "recovery": "A GPU recovery journal is still pending. Tests and application are blocked. Restart the app to retry recovery.",
     "exitBlocked": "A GPU operation is in progress. Cancel the test and wait for cleanup, application or restoration to finish before closing the window.",
     "retry": "Retry cleanup",
+    "dismiss": "Dismiss",
     "phase": {
       "Calibration": "Calibration",
       "Screening": "Screening",
-      "Refinement": "Retest"
+      "Refinement": "Retest",
+      "Confirmation": "Confirmation",
+      "ReverseConfirmation": "Reverse confirmation",
+      "EquivalentValidation": "Equivalent validation"
     },
     "ranking": {
       "Consistent": "Consistent ranking",
@@ -236,6 +241,8 @@
       "launching": "Starting workload",
       "warmup": "Warmup",
       "collecting": "Sampling",
+      "collected": "Sampled",
+      "restarting": "Restarting workload",
       "finalizing": "Finalizing",
       "cancelling": "Cancelling",
       "calibrating": "Calibrating"

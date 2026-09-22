@@ -4,6 +4,7 @@
     "confirm": "確認"
   },
   "nav": {
+    "title": "主要導覽",
     "gpuTest": "GPU 調校",
     "timer": "高精度計時器",
     "settings": "設定"
@@ -205,10 +206,14 @@
     "recovery": "有尚未完成的 GPU 還原日誌；禁止測試與套用。請重新啟動以重試復原。",
     "exitBlocked": "GPU 操作仍在進行。請先取消測試，並等待清理、套用或還原完成後再關閉視窗。",
     "retry": "重試清理",
+    "dismiss": "關閉",
     "phase": {
       "Calibration": "校準",
       "Screening": "篩選",
-      "Refinement": "複測"
+      "Refinement": "複測",
+      "Confirmation": "前向確認",
+      "ReverseConfirmation": "反向確認",
+      "EquivalentValidation": "等效驗證"
     },
     "ranking": {
       "Consistent": "排名一致",
@@ -236,6 +241,8 @@
       "launching": "啟動負載",
       "warmup": "暖機",
       "collecting": "取樣",
+      "collected": "取樣完成",
+      "restarting": "重新啟動負載",
       "finalizing": "完成清理",
       "cancelling": "取消",
       "calibrating": "校準"

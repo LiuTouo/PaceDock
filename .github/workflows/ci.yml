@@ -33,6 +33,9 @@ jobs:
       - name: 前端型別檢查
         run: npm run check
 
+      - name: i18n 鍵完整檢查
+        run: npm run check:i18n
+
       - name: 前端建置
         run: npm run build
 

@@ -421,6 +421,7 @@
                 `quick.phase.${$benchmarkProgress?.phase ?? $benchmarkState?.currentPhase ?? "Calibration"}`,
               )} · {$t(
             `quick.stage.${$benchmarkProgress?.stage ?? "starting"}`,
+            { default: $t("quick.stage.starting") },
           )}
         </p>
         <progress

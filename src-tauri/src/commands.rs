@@ -39,17 +39,20 @@ pub fn save_settings(
     candidate.settings = settings;
     config::save(&candidate)?;
     *cfg = candidate;
+    // 先釋放寫鎖再套用副作用：系統匣右鍵選單在主執行緒讀 config（current_lang），
+    // 持鎖跑 schtasks／timer 套用會凍結主執行緒（托盤選單與視窗無回應）。
+    drop(cfg);
+    // 語言已寫入設定檔：tray 選單重建必須在任一副作用失敗提前返回前完成，
+    // 否則 timer/autostart 套用失敗時選單停在舊語言。
+    if lang_changed {
+        crate::tray::rebuild_menu(&app);
+    }
     // 套用失敗時回 Err：前端既有 rollback 會還原 checkbox；下次啟動會再嘗試
     if timer_changed {
         crate::timer::apply(enable_timer)?;
     }
     if autostart_changed {
         crate::autostart::set_autostart(enable_autostart)?;
-    }
-    if lang_changed {
-        // 託管在 cfg lock 釋放後重建（此處 lock 仍在 scope，先 drop）
-        drop(cfg);
-        crate::tray::rebuild_menu(&app);
     }
     Ok(())
 }

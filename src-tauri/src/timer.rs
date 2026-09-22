@@ -477,7 +477,7 @@ pub fn list_exempts() -> Vec<TimerExemptEntry> {
 /// 執行中同名行程施加/還原。之後由輪詢對新啟動的同名行程自動重套。
 pub fn set_exempt_program(exe_name: &str, enabled: bool) -> Result<(), String> {
     let exe = exe_name.to_lowercase();
-    if enabled && (exe == "pacedock.exe" || crate::benchmark::capture::is_blacklisted(&exe)) {
+    if enabled && crate::benchmark::capture::is_blacklisted(&exe) {
         return Err(codes::TIMER_EXEMPT_BLOCKED.to_string());
     }
     // 先同步名單再動手：輪詢 thread 看到一致狀態

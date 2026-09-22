@@ -8,6 +8,7 @@
     "build": "vite build",
     "build:app": "tauri build --no-sign",
     "check": "svelte-check --tsconfig ./tsconfig.json",
+    "check:i18n": "node scripts/check-i18n.mjs",
     "test:ui": "playwright test",
     "test:contract": "node --test tests/contract/command-parity.test.mjs",
     "format": "prettier --write src",

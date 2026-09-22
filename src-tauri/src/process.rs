@@ -12,6 +12,15 @@ fn utf16_slice_to_string(s: &[u16]) -> String {
     String::from_utf16_lossy(&s[..end])
 }
 
+/// 目前執行檔的小寫檔名（更名版支援：exe 改名後仍可識別自身）。
+/// `current_exe` 失敗回空字串，不會匹配任何真實行程名。
+pub fn self_exe_name() -> String {
+    std::env::current_exe()
+        .ok()
+        .and_then(|p| p.file_name().map(|n| n.to_string_lossy().to_lowercase()))
+        .unwrap_or_default()
+}
+
 /// 列舉全系統行程為 `(pid, 小寫 exe 檔名)`。快照失敗回空 vec（呼叫端自行降級）。
 pub fn enumerate_processes() -> Vec<(u32, String)> {
     unsafe {
@@ -55,7 +64,7 @@ pub fn kill_orphan_webviews() {
     let mut webviews: Vec<u32> = Vec::new();
     let mut other_host_alive = false;
     for (pid, name) in enumerate_processes() {
-        if name == "pacedock.exe" && pid != self_pid {
+        if name == self_exe_name() && pid != self_pid {
             other_host_alive = true;
         } else if name == "msedgewebview2.exe" {
             webviews.push(pid);
