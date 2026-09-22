@@ -25,7 +25,7 @@ jobs:
 
       - uses: dtolnay/rust-toolchain@stable
         with:
-          components: clippy
+          components: clippy, rustfmt
 
       - name: 安裝前端相依套件
         run: npm ci
@@ -35,6 +35,18 @@ jobs:
 
       - name: 前端建置
         run: npm run build
+
+      - name: IPC 契約 parity 測試
+        run: npm run test:contract
+
+      - name: 前端格式檢查
+        run: npm run format:check
+
+      - name: UI 回歸測試（Playwright + Edge）
+        run: npm run test:ui
+
+      - name: Rust 格式檢查
+        run: cargo fmt --all --manifest-path src-tauri/Cargo.toml --check
 
       - name: Rust 測試
         run: cargo test --manifest-path src-tauri/Cargo.toml
