@@ -1,5 +1,6 @@
-//! PaceDock 主程式（PLAN §4 架構）。
-//! 單一 exe、requireAdministrator；GPU 調校完成後直接退出。
+//! PaceDock 主程式（composition root：拓撲/設定載入、計時器、恢復、Tauri 插件）。
+//! 單一 exe、requireAdministrator；關閉視窗預設隱藏到系統匣（高精度計時器常駐），
+//! GPU 測試／套用／還原期間阻止退出。
 //! Release 用 GUI subsystem 避免 CMD 閃爍；debug 保留 console。
 
 #![cfg_attr(not(debug_assertions), windows_subsystem = "windows")]
@@ -19,8 +20,8 @@ mod process;
 mod state_auth;
 mod syspath;
 mod timer;
-mod tray;
 mod topology;
+mod tray;
 mod update;
 
 use std::sync::{Arc, RwLock};

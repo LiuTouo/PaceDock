@@ -32,10 +32,10 @@ The frontend sends core IDs only. The backend verifies the session HMAC, GPU, CP
 - Legacy single-LP history is view-only. It cannot be applied, expanded to a whole core or automatically re-signed.
 - Existing GPU restoration records remain valid. Multi-bit policies display their complete LP set.
 - Legacy game CPU rules remain in the configuration, including when general settings are saved, but never execute. Restart any running game modified by an older version.
-- The tray, Dashboard, game rules, autostart and minimized startup are removed. This version does not clean up startup tasks from the previous brand.
+- The Dashboard and game rules page are removed and will not return. Tray residency (for the high-precision timer), Windows autostart and minimized startup returned in 0.3.1 and are controlled from general settings. Switching from the previous brand does not clean up its startup tasks.
 - Install the renamed app as a fresh installation. Settings, history, recovery records and keys from the previous brand are not migrated, and updates from that brand are unsupported. Before switching, restore GPU policy and disable startup tasks using the previous app, then exit it. Keep its data and keys until recovery is no longer needed.
-- Language, theme, updates and the data-folder action remain available. Data lives in `%APPDATA%\PaceDock`.
-- Closing the window exits while idle. GPU testing, application or restoration blocks exit until operations and cleanup finish.
+- General settings cover language, theme, updates, the data-folder action, autostart, minimized startup, close behavior, the high-precision timer and the game throttle exemption list. Data lives in `%APPDATA%\PaceDock`.
+- Closing the window hides it to the tray by default (configurable to exit instead). GPU testing, application or restoration blocks exit until operations and cleanup finish. The Timer page manages the high-precision timer and throttle exemptions.
 
 GPU policy changes require administrator privileges and restart the display device; the display may briefly go black. ETW/CSV integrity, window checks, cancellation and crash recovery remain in place.
 
