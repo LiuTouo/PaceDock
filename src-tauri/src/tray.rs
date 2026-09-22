@@ -9,7 +9,6 @@ use tauri::{AppHandle, Emitter, Manager, Wry};
 
 use crate::AppState;
 
-const ID_SHOW: &str = "fa_show";
 const ID_ABOUT: &str = "fa_about";
 const ID_QUIT: &str = "fa_quit";
 
@@ -54,7 +53,6 @@ pub(crate) fn set_drift_warning(
 pub(crate) use native::{notify, shutdown};
 
 struct TrayStrings {
-    show: &'static str,
     about: &'static str,
     quit: &'static str,
 }
@@ -62,13 +60,11 @@ struct TrayStrings {
 fn strings(lang: &str) -> TrayStrings {
     if lang.starts_with("en") {
         TrayStrings {
-            show: "Show PaceDock",
             about: "About PaceDock",
             quit: "Quit PaceDock",
         }
     } else {
         TrayStrings {
-            show: "顯示 PaceDock",
             about: "關於 PaceDock",
             quit: "結束 PaceDock",
         }
@@ -82,12 +78,10 @@ pub fn build_tray(app: &AppHandle) -> tauri::Result<()> {
 
 fn build_menu(app: &AppHandle, lang: &str) -> tauri::Result<Menu<Wry>> {
     let s = strings(lang);
-    let show = MenuItemBuilder::with_id(ID_SHOW, s.show).build(app)?;
     let about = MenuItemBuilder::with_id(ID_ABOUT, s.about).build(app)?;
     let quit = MenuItemBuilder::with_id(ID_QUIT, s.quit).build(app)?;
     let sep = PredefinedMenuItem::separator(app)?;
-    let sep2 = PredefinedMenuItem::separator(app)?;
-    Menu::with_items(app, &[&show, &sep, &about, &sep2, &quit])
+    Menu::with_items(app, &[&about, &sep, &quit])
 }
 
 /// 語言切換時重建整個選單（save_settings 呼叫）
@@ -116,7 +110,6 @@ fn current_lang(app: &AppHandle) -> String {
 
 fn handle_menu_event(app: &AppHandle, id: &str) {
     match id {
-        ID_SHOW => crate::show_main_window(app),
         ID_ABOUT => {
             crate::show_main_window(app);
             // 前端 AboutDialog 監聽；WebView 在 close-to-tray 下仍存活
