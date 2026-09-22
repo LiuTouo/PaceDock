@@ -1,0 +1,4 @@
+# Windows runner 預設 core.autocrlf=true 會把 LF blob 轉成 CRLF，
+# 導致 CI 的 prettier --check（Prettier 3 預設 endOfLine=lf）全檔失敗。
+# 強制文字檔一律 LF checkout，本地與 CI 一致。binary 由 git 自動偵測不動。
+* text=auto eol=lf
