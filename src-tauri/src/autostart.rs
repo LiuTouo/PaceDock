@@ -3,10 +3,7 @@
 //! 執行檔位於受保護目錄（Program Files 樹）用 /RL HIGHEST；可寫位置（可攜版等）
 //! 一律降級 /RL LIMITED——HIGHEST 工作保存的是路徑字串，登入時會無 UAC 執行
 //! 該路徑的內容，可寫位置可被同帳戶未提升程序置換（安全審計 #05）。
-use std::{
-    os::windows::process::CommandExt,
-    process::Command,
-};
+use std::{os::windows::process::CommandExt, process::Command};
 
 const CREATE_NO_WINDOW: u32 = 0x08000000;
 const TASK_NAME: &str = "PaceDock";

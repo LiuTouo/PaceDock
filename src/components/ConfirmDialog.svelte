@@ -1,5 +1,5 @@
 <script lang="ts">
-  import { tick } from 'svelte';
+  import { tick } from "svelte";
 
   let {
     open = $bindable(false),
@@ -41,14 +41,14 @@
 
   function onkeydown(event: KeyboardEvent) {
     if (!open) return;
-    if (event.key === 'Escape') {
+    if (event.key === "Escape") {
       event.stopPropagation();
       close();
     }
     // 焦點陷阱：Tab 在確認/取消按鈕之間循環
-    if (event.key === 'Tab' && dialogEl) {
+    if (event.key === "Tab" && dialogEl) {
       const focusable = dialogEl.querySelectorAll<HTMLElement>(
-        'button:not([disabled])',
+        "button:not([disabled])",
       );
       if (focusable.length < 2) return;
       const first = focusable[0];
@@ -86,11 +86,7 @@
 
 {#if open}
   <!-- svelte-ignore a11y_click_events_have_key_events -->
-  <div
-    class="overlay"
-    role="presentation"
-    onclick={close}
-  >
+  <div class="overlay" role="presentation" onclick={close}>
     <!-- svelte-ignore a11y_click_events_have_key_events -->
     <div
       class:danger
@@ -105,14 +101,32 @@
     >
       <div class="icon" aria-hidden="true">
         {#if danger}
-          <svg viewBox="0 0 24 24" width="18" height="18" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round">
-            <path d="M12 9v4m0 4h.01"/>
-            <path d="M10.29 3.86L1.82 18a2 2 0 001.71 3h16.94a2 2 0 001.71-3L13.71 3.86a2 2 0 00-3.42 0z"/>
+          <svg
+            viewBox="0 0 24 24"
+            width="18"
+            height="18"
+            fill="none"
+            stroke="currentColor"
+            stroke-width="2.5"
+            stroke-linecap="round"
+          >
+            <path d="M12 9v4m0 4h.01" />
+            <path
+              d="M10.29 3.86L1.82 18a2 2 0 001.71 3h16.94a2 2 0 001.71-3L13.71 3.86a2 2 0 00-3.42 0z"
+            />
           </svg>
         {:else}
-          <svg viewBox="0 0 24 24" width="18" height="18" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round">
-            <circle cx="12" cy="12" r="10"/>
-            <path d="M12 16v-4m0-4h.01"/>
+          <svg
+            viewBox="0 0 24 24"
+            width="18"
+            height="18"
+            fill="none"
+            stroke="currentColor"
+            stroke-width="2.5"
+            stroke-linecap="round"
+          >
+            <circle cx="12" cy="12" r="10" />
+            <path d="M12 16v-4m0-4h.01" />
           </svg>
         {/if}
       </div>
@@ -121,11 +135,7 @@
         <p id={descId}>{message}</p>
         {#if detail}<p class="detail">{detail}</p>{/if}
         <div class="actions">
-          <button
-            bind:this={cancelBtn}
-            onclick={close}
-            disabled={busy}
-          >
+          <button bind:this={cancelBtn} onclick={close} disabled={busy}>
             {cancelLabel}
           </button>
           <button
@@ -222,5 +232,4 @@
     gap: var(--space-3);
     margin-top: var(--space-6);
   }
-
 </style>

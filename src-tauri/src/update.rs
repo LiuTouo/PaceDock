@@ -352,13 +352,14 @@ fn base64_decode(input: &str, what: &str) -> Result<Vec<u8>, String> {
 fn updater_pubkey() -> Result<minisign_verify::PublicKey, String> {
     use minisign_verify::PublicKey;
     let config = include_str!("../tauri.conf.json");
-    let value: serde_json::Value = serde_json::from_str(config)
-        .map_err(|e| format!("解析 tauri.conf.json 失敗: {e}"))?;
+    let value: serde_json::Value =
+        serde_json::from_str(config).map_err(|e| format!("解析 tauri.conf.json 失敗: {e}"))?;
     let pubkey_b64 = value["plugins"]["updater"]["pubkey"]
         .as_str()
         .ok_or_else(|| "tauri.conf.json 缺少 plugins.updater.pubkey".to_string())?;
     let decoded = base64_decode(pubkey_b64, "updater pubkey")?;
-    let text = String::from_utf8(decoded).map_err(|e| format!("updater pubkey 非合法 UTF-8: {e}"))?;
+    let text =
+        String::from_utf8(decoded).map_err(|e| format!("updater pubkey 非合法 UTF-8: {e}"))?;
     let key_line = minisign_second_line(&text, "updater pubkey")?;
     PublicKey::from_base64(&key_line).map_err(|e| format!("updater pubkey 解析失敗: {e}"))
 }
@@ -647,8 +648,8 @@ pub fn extract_portable_exe(zip_data: &[u8]) -> Result<(PathBuf, PathBuf, PathBu
     for i in 0..archive.len() {
         if let Ok(mut f) = archive.by_index(i) {
             if f.name() == PORTABLE_MARKER {
-                let mut out =
-                    exclusive_create(&tmp_marker).map_err(|e| format!("建立暫存標記檔失敗: {e}"))?;
+                let mut out = exclusive_create(&tmp_marker)
+                    .map_err(|e| format!("建立暫存標記檔失敗: {e}"))?;
                 std::io::copy(&mut f, &mut out).map_err(|e| format!("解壓縮標記檔失敗: {e}"))?;
                 break;
             }
@@ -682,10 +683,7 @@ fn exclusive_create(path: &Path) -> std::io::Result<std::fs::File> {
 /// 建立一次性暫存目錄:隨機名稱 + 僅 Administrators/SYSTEM 可寫的保護型 DACL。
 /// 隨機名稱與受保護 DACL 防止驗證後被非提升權限程序置換內容。
 fn create_protected_staging_dir() -> Result<PathBuf, String> {
-    let dir = std::env::temp_dir().join(format!(
-        "pacedock_update_{}",
-        uuid::Uuid::new_v4()
-    ));
+    let dir = std::env::temp_dir().join(format!("pacedock_update_{}", uuid::Uuid::new_v4()));
     // UUID 撞名殘留時移除重試一次;仍失敗即放棄(fail closed)
     if dir.exists() && std::fs::remove_dir_all(&dir).is_err() {
         return Err(format!("無法清除殘留暫存目錄: {}", dir.display()));
@@ -933,8 +931,8 @@ mod tests {
         let keypair =
             minisign::KeyPair::generate_unencrypted_keypair().expect("測試 keypair 生成不應失敗");
         let secret = keypair.sk;
-        let public = minisign::PublicKey::from_secret_key(&secret)
-            .expect("由 secret key 推導公鑰不應失敗");
+        let public =
+            minisign::PublicKey::from_secret_key(&secret).expect("由 secret key 推導公鑰不應失敗");
         let sig_box = minisign::sign(
             None,
             &secret,

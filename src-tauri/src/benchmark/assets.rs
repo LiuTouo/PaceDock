@@ -68,10 +68,7 @@ impl AssetError {
 /// 驗證所有資源：每個內嵌 digest 對應的檔案必須存在且 sha256 相符。
 /// d3d9 workload 有 per-build digest 時一併比對,否則僅要求存在(開發建置)。
 pub fn verify(assets: &BenchmarkAssets) -> Result<(), AssetError> {
-    let dir = assets
-        .presentmon
-        .parent()
-        .unwrap_or_else(|| Path::new("."));
+    let dir = assets.presentmon.parent().unwrap_or_else(|| Path::new("."));
     for (file, want_hash) in BUILTIN_DIGESTS {
         check_hash(&dir.join(file), want_hash)?;
     }
@@ -117,11 +114,8 @@ mod tests {
     use super::*;
 
     fn temp_dir(name: &str) -> PathBuf {
-        let dir = std::env::temp_dir().join(format!(
-            "pacedock_assets_{}_{}",
-            std::process::id(),
-            name
-        ));
+        let dir =
+            std::env::temp_dir().join(format!("pacedock_assets_{}_{}", std::process::id(), name));
         let _ = std::fs::remove_dir_all(&dir);
         std::fs::create_dir_all(&dir).unwrap();
         dir
@@ -171,8 +165,14 @@ mod tests {
         let dir = temp_dir("nod3d9");
         // 真實 vendored 目錄只缺 d3d9 → 第一個失敗點應指名 d3d9-workload
         let vendored = PathBuf::from(env!("CARGO_MANIFEST_DIR")).join("resources/benchmark");
-        write(&dir.join(PRESENTMON_FILE), &std::fs::read(vendored.join(PRESENTMON_FILE)).unwrap());
-        write(&dir.join(VULKAN_WORKLOAD_FILE), &std::fs::read(vendored.join(VULKAN_WORKLOAD_FILE)).unwrap());
+        write(
+            &dir.join(PRESENTMON_FILE),
+            &std::fs::read(vendored.join(PRESENTMON_FILE)).unwrap(),
+        );
+        write(
+            &dir.join(VULKAN_WORKLOAD_FILE),
+            &std::fs::read(vendored.join(VULKAN_WORKLOAD_FILE)).unwrap(),
+        );
         // 不建 d3d9-workload.exe
 
         let err = verify(&load(&dir)).unwrap_err();

@@ -282,7 +282,10 @@ impl MainWindowController for RealMainWindowController {
         let y = p.top;
         let show_max = placement.showCmd == 3u32; // SW_SHOWMAXIMIZED
         if let Ok(hd) = win.hwnd() {
-            log::info!("restore: hwnd=0x{:x} target {w}x{h} at ({x},{y})", hd.0 as usize);
+            log::info!(
+                "restore: hwnd=0x{:x} target {w}x{h} at ({x},{y})",
+                hd.0 as usize
+            );
         }
         // 主執行緒套用還原；之後 1.5/3/5 秒各重套一次並實測。實測發現 tao 內部
         // 快取會在 restore 約 2 秒後以舊 compact 幾何蓋回（非本 repo 任何路徑），
@@ -341,7 +344,10 @@ impl MainWindowController for RealMainWindowController {
                 })
                 .map_err(|e| format!("restore retry spawn: {e}"))?;
         }
-        log::info!("主視窗已還原: {w}x{h} at ({x},{y}) showCmd={}", placement.showCmd);
+        log::info!(
+            "主視窗已還原: {w}x{h} at ({x},{y}) showCmd={}",
+            placement.showCmd
+        );
         Ok(())
     }
 

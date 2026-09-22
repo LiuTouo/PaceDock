@@ -156,7 +156,10 @@ fn write_index(
     if result == ERROR_SUCCESS.0 {
         Ok(())
     } else {
-        log::error!("PowerWrite{}ValueIndex 失敗: {result:?}", if ac { "AC" } else { "DC" });
+        log::error!(
+            "PowerWrite{}ValueIndex 失敗: {result:?}",
+            if ac { "AC" } else { "DC" }
+        );
         Err(codes::POWER_APPLY_FAILED.to_string())
     }
 }
@@ -178,7 +181,8 @@ fn commit(scheme: GUID) -> Result<(), String> {
 /// 已達標 → no-op 成功（冪等，不重複寫記錄）。
 fn apply_tweak(kind: PowerTweakKind, path: &Path) -> Result<(), String> {
     let (sub, setting) = kind.guids();
-    let scheme = crate::health::active_scheme().ok_or_else(|| codes::POWER_APPLY_FAILED.to_string())?;
+    let scheme =
+        crate::health::active_scheme().ok_or_else(|| codes::POWER_APPLY_FAILED.to_string())?;
     let before = [
         crate::health::ac_dc_value_index(scheme, sub, setting, true),
         crate::health::ac_dc_value_index(scheme, sub, setting, false),
@@ -223,8 +227,8 @@ fn restore_tweak(kind: PowerTweakKind, path: &Path) -> Result<(), String> {
     let mut rec = load_record(path)?.ok_or_else(|| codes::POWER_RESTORE_FAILED.to_string())?;
     let before =
         take_from_record(&mut rec, kind).ok_or_else(|| codes::POWER_RESTORE_FAILED.to_string())?;
-    let scheme = crate::health::active_scheme()
-        .ok_or_else(|| codes::POWER_RESTORE_FAILED.to_string())?;
+    let scheme =
+        crate::health::active_scheme().ok_or_else(|| codes::POWER_RESTORE_FAILED.to_string())?;
     // 只寫回套用前讀得到的那幾邊（None = 套用前即讀不到，跳過）
     if let Some(ac) = before[0] {
         write_index(scheme, sub, setting, true, ac)
@@ -250,28 +254,39 @@ fn restore_tweak(kind: PowerTweakKind, path: &Path) -> Result<(), String> {
 pub(crate) fn monitored_power_settings() -> Vec<(crate::drift::Setting, Option<bool>)> {
     use crate::drift::Setting;
     let path = record_path();
-    let record = path.try_exists().map_err(|e| e.to_string()).and_then(|_| load_record(&path));
+    let record = path
+        .try_exists()
+        .map_err(|e| e.to_string())
+        .and_then(|_| load_record(&path));
     let scheme = crate::health::active_scheme();
-    [(PowerTweakKind::Usb, Setting::Usb), (PowerTweakKind::Aspm, Setting::Aspm)]
-        .into_iter()
-        .map(|(kind, setting)| {
-            let drift = match &record {
-                Err(_) => None,
-                Ok(record) => {
-                    let managed = record.as_ref().is_some_and(|r| match kind {
-                        PowerTweakKind::Usb => r.usb.is_some(),
-                        PowerTweakKind::Aspm => r.aspm.is_some(),
-                    });
-                    if !managed { Some(false) } else {
-                        let (sub, key) = kind.guids();
-                        let ac = scheme.and_then(|s| crate::health::ac_dc_value_index(s, sub, key, true));
-                        let dc = scheme.and_then(|s| crate::health::ac_dc_value_index(s, sub, key, false));
-                        crate::drift::disabled_power_drift(ac, dc)
-                    }
+    [
+        (PowerTweakKind::Usb, Setting::Usb),
+        (PowerTweakKind::Aspm, Setting::Aspm),
+    ]
+    .into_iter()
+    .map(|(kind, setting)| {
+        let drift = match &record {
+            Err(_) => None,
+            Ok(record) => {
+                let managed = record.as_ref().is_some_and(|r| match kind {
+                    PowerTweakKind::Usb => r.usb.is_some(),
+                    PowerTweakKind::Aspm => r.aspm.is_some(),
+                });
+                if !managed {
+                    Some(false)
+                } else {
+                    let (sub, key) = kind.guids();
+                    let ac =
+                        scheme.and_then(|s| crate::health::ac_dc_value_index(s, sub, key, true));
+                    let dc =
+                        scheme.and_then(|s| crate::health::ac_dc_value_index(s, sub, key, false));
+                    crate::drift::disabled_power_drift(ac, dc)
                 }
-            };
-            (setting, drift)
-        }).collect()
+            }
+        };
+        (setting, drift)
+    })
+    .collect()
 }
 
 /// 查詢 USB 選擇性暫停與 PCIe ASPM 目前值（唯讀；不需排他權）。
@@ -283,7 +298,12 @@ pub async fn get_power_tweaks() -> Result<PowerTweaksStatus, String> {
         let (usb_ac, usb_dc) = match scheme {
             Some(s) => (
                 crate::health::ac_dc_value_index(s, GUID_SUB_USB, GUID_USB_SELECTIVE_SUSPEND, true),
-                crate::health::ac_dc_value_index(s, GUID_SUB_USB, GUID_USB_SELECTIVE_SUSPEND, false),
+                crate::health::ac_dc_value_index(
+                    s,
+                    GUID_SUB_USB,
+                    GUID_USB_SELECTIVE_SUSPEND,
+                    false,
+                ),
             ),
             None => (None, None),
         };
@@ -368,9 +388,15 @@ mod tests {
             usb: Some([Some(1), Some(0)]),
             aspm: Some([Some(2), None]), // None = 套用前讀不到,還原時跳過該邊
         };
-        assert_eq!(take_from_record(&mut rec, PowerTweakKind::Usb), Some([Some(1), Some(0)]));
+        assert_eq!(
+            take_from_record(&mut rec, PowerTweakKind::Usb),
+            Some([Some(1), Some(0)])
+        );
         assert_eq!(take_from_record(&mut rec, PowerTweakKind::Usb), None); // 已取出
-        assert_eq!(take_from_record(&mut rec, PowerTweakKind::Aspm), Some([Some(2), None]));
+        assert_eq!(
+            take_from_record(&mut rec, PowerTweakKind::Aspm),
+            Some([Some(2), None])
+        );
         // 兩項都取出 → 呼叫端應清檔
         assert!(rec.usb.is_none() && rec.aspm.is_none());
     }
@@ -383,7 +409,10 @@ mod tests {
         // 無記錄 → None
         assert_eq!(load_record(&path).unwrap(), None);
         // 寫 → 讀 round-trip(含 None 邊)
-        let rec = PowerTweaksRecord { usb: Some([Some(0), None]), aspm: None };
+        let rec = PowerTweaksRecord {
+            usb: Some([Some(0), None]),
+            aspm: None,
+        };
         save_record(&path, &rec).unwrap();
         assert_eq!(load_record(&path).unwrap(), Some(rec));
         // 清除冪等

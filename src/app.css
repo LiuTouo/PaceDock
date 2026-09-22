@@ -1,7 +1,7 @@
 /* ── 字型：IBM Plex Sans TC（僅 Regular，較粗字重由瀏覽器合成） ── */
 @font-face {
-  font-family: 'IBM Plex Sans TC';
-  src: url('./assets/fonts/IBMPlexSansTC-Regular.woff2') format('woff2');
+  font-family: "IBM Plex Sans TC";
+  src: url("./assets/fonts/IBMPlexSansTC-Regular.woff2") format("woff2");
   font-weight: 400;
   font-style: normal;
   font-display: swap;
@@ -9,7 +9,7 @@
 
 /* ── 設計代幣：深色主題（預設，Catppuccin Frappé） ── */
 :root,
-[data-theme='dark'] {
+[data-theme="dark"] {
   /* 表面：mantle → base → surface0 → surface1（由深至淺） */
   --surface-0: #292c3c;
   --surface-1: #303446;
@@ -45,7 +45,8 @@
 
   /* 陰影（crust 基底） */
   --shadow-xs: 0 1px 2px rgba(35, 38, 52, 0.35);
-  --shadow-sm: 0 1px 3px rgba(35, 38, 52, 0.37), 0 1px 2px rgba(35, 38, 52, 0.28);
+  --shadow-sm:
+    0 1px 3px rgba(35, 38, 52, 0.37), 0 1px 2px rgba(35, 38, 52, 0.28);
   --shadow-md: 0 4px 14px rgba(35, 38, 52, 0.45);
   --shadow-lg: 0 12px 40px rgba(35, 38, 52, 0.56);
 
@@ -54,7 +55,7 @@
 }
 
 /* ── 設計代幣：淺色主題（Catppuccin Latte） ── */
-[data-theme='light'] {
+[data-theme="light"] {
   /* 表面：mantle → base → surface0 → surface1（由深至淺） */
   --surface-0: #e6e9ef;
   --surface-1: #eff1f5;
@@ -163,7 +164,11 @@ body,
 body {
   background: var(--surface-0);
   color: var(--text-primary);
-  font-family: 'IBM Plex Sans TC', system-ui, -apple-system, sans-serif;
+  font-family:
+    "IBM Plex Sans TC",
+    system-ui,
+    -apple-system,
+    sans-serif;
   font-weight: var(--font-weight-regular);
   font-size: 13.5px;
   line-height: 1.55;
@@ -239,7 +244,9 @@ button {
   justify-content: center;
   gap: var(--space-2);
   /* 前景／背景同時切換，避免不同亮度插值造成短暫低對比。 */
-  transition: box-shadow var(--transition-fast), border-color var(--transition-fast);
+  transition:
+    box-shadow var(--transition-fast),
+    border-color var(--transition-fast);
   white-space: normal;
   overflow-wrap: anywhere;
   line-height: 1.5;
@@ -296,8 +303,8 @@ button.ghost {
   --button-hover-bg: var(--surface-2);
 }
 
-button[aria-pressed='true'],
-button[aria-current='page'] {
+button[aria-pressed="true"],
+button[aria-current="page"] {
   --button-bg: var(--surface-2);
   --button-hover-bg: var(--button-hover);
   --button-stroke: var(--button-border);
@@ -322,8 +329,8 @@ button > svg {
 }
 
 /* ── 輸入框 ── */
-input[type='text'],
-input[type='number'],
+input[type="text"],
+input[type="number"],
 input:not([type]),
 select,
 textarea {
@@ -340,16 +347,16 @@ textarea {
     background var(--transition-fast);
 }
 
-input[type='text']:hover,
-input[type='number']:hover,
+input[type="text"]:hover,
+input[type="number"]:hover,
 input:not([type]):hover,
 select:hover,
 textarea:hover {
   border-color: var(--text-muted);
 }
 
-input[type='text']:focus,
-input[type='number']:focus,
+input[type="text"]:focus,
+input[type="number"]:focus,
 input:not([type]):focus,
 select:focus,
 textarea:focus {
@@ -358,8 +365,8 @@ textarea:focus {
   box-shadow: var(--focus-ring);
 }
 
-input[type='text']:disabled,
-input[type='number']:disabled,
+input[type="text"]:disabled,
+input[type="number"]:disabled,
 input:not([type]):disabled,
 select:disabled,
 textarea:disabled {
@@ -367,13 +374,13 @@ textarea:disabled {
   cursor: default;
 }
 
-input[type='text']::placeholder,
+input[type="text"]::placeholder,
 input:not([type])::placeholder,
 textarea::placeholder {
   color: var(--text-muted);
 }
 
-input[type='checkbox'] {
+input[type="checkbox"] {
   width: 16px;
   height: 16px;
   accent-color: var(--accent);
@@ -382,14 +389,14 @@ input[type='checkbox'] {
   margin: 0;
 }
 
-input[type='radio'] {
+input[type="radio"] {
   accent-color: var(--accent);
   cursor: pointer;
   flex-shrink: 0;
   margin: 0;
 }
 
-input[type='range'] {
+input[type="range"] {
   accent-color: var(--accent);
 }
 
@@ -403,7 +410,7 @@ select {
   background-position: right 11px center;
 }
 
-[data-theme='light'] select {
+[data-theme="light"] select {
   background-image: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='10' height='6'%3E%3Cpath d='M0 0l5 6 5-6z' fill='%236c6f85'/%3E%3C/svg%3E");
 }
 
@@ -579,7 +586,7 @@ tbody tr:hover {
 
 /* ── 等寬字 ── */
 .mono {
-  font-family: 'IBM Plex Sans TC', monospace;
+  font-family: "IBM Plex Sans TC", monospace;
   font-size: 11.5px;
 }
 

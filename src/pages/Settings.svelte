@@ -1,17 +1,18 @@
 <script lang="ts">
-  import { locale, t } from 'svelte-i18n';
-  import * as ipc from '../lib/ipc';
-  import { settings, updateState, isPortable } from '../lib/stores';
-  import type { Settings, UpdateStatus } from '../lib/types';
-  import { checkForUpdates, installUpdate } from '../lib/updater';
-  import ConfirmDialog from '../components/ConfirmDialog.svelte';
+  import { locale, t } from "svelte-i18n";
+  import * as ipc from "../lib/ipc";
+  import { settings, updateState, isPortable } from "../lib/stores";
+  import type { Settings, UpdateStatus } from "../lib/types";
+  import { checkForUpdates, installUpdate } from "../lib/updater";
+  import ConfirmDialog from "../components/ConfirmDialog.svelte";
 
   let updateConfirmOpen = $state(false);
 
   // busy 狀態直接從 updateState store 推導
-  let checking = $derived($updateState?.status === 'Checking');
+  let checking = $derived($updateState?.status === "Checking");
   let installing = $derived(
-    $updateState?.status === 'Downloading' || $updateState?.status === 'Installing',
+    $updateState?.status === "Downloading" ||
+      $updateState?.status === "Installing",
   );
 
   let saveError = $state<string | null>(null);
@@ -58,7 +59,7 @@
   /// 執行更新（含確認對話框）
   async function doUpdate() {
     const curState = $updateState;
-    if (!curState || curState.status !== 'Available') return;
+    if (!curState || curState.status !== "Available") return;
     updateConfirmOpen = true;
   }
 
@@ -69,37 +70,49 @@
 
   /// from update-state event 或手動設定
   function statusLabel(s: UpdateStatus | null): string {
-    if (!s) return '';
+    if (!s) return "";
     switch (s) {
-      case 'Checking': return $t('settings.updateChecking') as string;
-      case 'UpToDate': return $t('settings.updateUpToDate') as string;
-      case 'Available': return $t('settings.updateAvailable') as string;
-      case 'Downloading': return $t('settings.updateDownloading') as string;
-      case 'Installing': return $t('settings.updateInstalling') as string;
-      case 'Error': return $t('settings.updateError') as string;
-      default: return '';
+      case "Checking":
+        return $t("settings.updateChecking") as string;
+      case "UpToDate":
+        return $t("settings.updateUpToDate") as string;
+      case "Available":
+        return $t("settings.updateAvailable") as string;
+      case "Downloading":
+        return $t("settings.updateDownloading") as string;
+      case "Installing":
+        return $t("settings.updateInstalling") as string;
+      case "Error":
+        return $t("settings.updateError") as string;
+      default:
+        return "";
     }
   }
 
-  const dataDir = '%APPDATA%\\PaceDock';
+  const dataDir = "%APPDATA%\\PaceDock";
 </script>
 
 {#if $settings}
   {#if saveError}
     <div class="save-error" role="alert">
       <span class="error-msg">
-        <svg viewBox="0 0 24 24" width="14" height="14" aria-hidden="true"><path d="M12 2C6.48 2 2 6.48 2 12s4.48 10 10 10 10-4.48 10-10S17.52 2 12 2zm1 15h-2v-2h2v2zm0-4h-2V7h2v6z" fill="currentColor"/></svg>
-        {$t('settings.saveFailed', { values: { error: saveError } })}
+        <svg viewBox="0 0 24 24" width="14" height="14" aria-hidden="true"
+          ><path
+            d="M12 2C6.48 2 2 6.48 2 12s4.48 10 10 10 10-4.48 10-10S17.52 2 12 2zm1 15h-2v-2h2v2zm0-4h-2V7h2v6z"
+            fill="currentColor"
+          /></svg
+        >
+        {$t("settings.saveFailed", { values: { error: saveError } })}
       </span>
     </div>
   {/if}
 
   <!-- ── 一般（啟動行為）── -->
   <section class="panel settings-section">
-    <h2 class="section-title">{$t('settings.general')}</h2>
+    <h2 class="section-title">{$t("settings.general")}</h2>
     <div class="section">
       <label class="opt row">
-        <span>{$t('settings.autostart')}</span>
+        <span>{$t("settings.autostart")}</span>
         <input
           type="checkbox"
           checked={$settings.startWithWindows}
@@ -107,7 +120,7 @@
         />
       </label>
       <label class="opt row">
-        <span>{$t('settings.startMinimized')}</span>
+        <span>{$t("settings.startMinimized")}</span>
         <input
           type="checkbox"
           checked={$settings.startMinimized}
@@ -116,8 +129,10 @@
       </label>
       <label class="opt row">
         <span>
-          {$t('settings.advancedMode')}
-          <span class="hint advanced-hint">{$t('settings.advancedModeHint')}</span>
+          {$t("settings.advancedMode")}
+          <span class="hint advanced-hint"
+            >{$t("settings.advancedModeHint")}</span
+          >
         </span>
         <input
           type="checkbox"
@@ -130,10 +145,10 @@
 
   <!-- ── 外觀 ── -->
   <section class="panel settings-section">
-    <h2 class="section-title">{$t('settings.appearance')}</h2>
+    <h2 class="section-title">{$t("settings.appearance")}</h2>
     <div class="section">
       <div class="opt row">
-        <span>{$t('settings.language')}</span>
+        <span>{$t("settings.language")}</span>
         <select
           value={$settings.language}
           onchange={(e) => save({ language: e.currentTarget.value })}
@@ -144,13 +159,14 @@
       </div>
 
       <div class="opt row">
-        <span>{$t('settings.theme')}</span>
+        <span>{$t("settings.theme")}</span>
         <select
           value={$settings.theme}
-          onchange={(e) => save({ theme: e.currentTarget.value as 'Dark' | 'Light' })}
+          onchange={(e) =>
+            save({ theme: e.currentTarget.value as "Dark" | "Light" })}
         >
-          <option value="Dark">{$t('settings.themeDark')}</option>
-          <option value="Light">{$t('settings.themeLight')}</option>
+          <option value="Dark">{$t("settings.themeDark")}</option>
+          <option value="Light">{$t("settings.themeLight")}</option>
         </select>
       </div>
     </div>
@@ -158,37 +174,51 @@
 
   <!-- ── 更新與版本 ── -->
   <section class="panel settings-section">
-    <h2 class="section-title">{$t('settings.updateSection')}</h2>
+    <h2 class="section-title">{$t("settings.updateSection")}</h2>
     <div class="section">
       <div class="opt row">
         <span class="hint">
-          PaceDock · {$t('settings.version')} {$updateState?.currentVersion ?? '0.0.0'}
+          PaceDock · {$t("settings.version")}
+          {$updateState?.currentVersion ?? "0.0.0"}
           {#if $isPortable}
-            <span class="tag">{$t('settings.portableBuild')}</span>
+            <span class="tag">{$t("settings.portableBuild")}</span>
           {/if}
         </span>
       </div>
 
       <div class="opt row">
         <span class="hint">
-          {#if $updateState && $updateState.status !== 'Idle'}
+          {#if $updateState && $updateState.status !== "Idle"}
             {statusLabel($updateState.status)}
-            {#if $updateState.latestVersion && $updateState.status === 'Available'}
+            {#if $updateState.latestVersion && $updateState.status === "Available"}
               · {$updateState.latestVersion}
             {/if}
-            {#if $updateState.progress !== null && $updateState.status === 'Downloading'}
+            {#if $updateState.progress !== null && $updateState.status === "Downloading"}
               · {$updateState.progress}%
             {/if}
           {/if}
         </span>
 
-        {#if $updateState?.status === 'Available'}
-          <button class="primary" onclick={doUpdate} disabled={installing} aria-busy={installing}>
-            {installing ? $t('settings.updateInstalling') : $t('settings.updateInstall')}
+        {#if $updateState?.status === "Available"}
+          <button
+            class="primary"
+            onclick={doUpdate}
+            disabled={installing}
+            aria-busy={installing}
+          >
+            {installing
+              ? $t("settings.updateInstalling")
+              : $t("settings.updateInstall")}
           </button>
-        {:else if $updateState?.status !== 'Downloading' && $updateState?.status !== 'Installing'}
-          <button onclick={manualCheck} disabled={checking || installing} aria-busy={checking}>
-            {checking ? $t('settings.updateChecking') : $t('settings.updateCheck')}
+        {:else if $updateState?.status !== "Downloading" && $updateState?.status !== "Installing"}
+          <button
+            onclick={manualCheck}
+            disabled={checking || installing}
+            aria-busy={checking}
+          >
+            {checking
+              ? $t("settings.updateChecking")
+              : $t("settings.updateCheck")}
           </button>
         {/if}
       </div>
@@ -196,8 +226,15 @@
       {#if $updateState?.error}
         <div class="opt">
           <span class="error-msg" role="alert">
-            <svg viewBox="0 0 24 24" width="14" height="14" aria-hidden="true"><path d="M12 2C6.48 2 2 6.48 2 12s4.48 10 10 10 10-4.48 10-10S17.52 2 12 2zm1 15h-2v-2h2v2zm0-4h-2V7h2v6z" fill="currentColor"/></svg>
-            {$t('settings.updateErrorDetail', { values: { error: $updateState.error } })}
+            <svg viewBox="0 0 24 24" width="14" height="14" aria-hidden="true"
+              ><path
+                d="M12 2C6.48 2 2 6.48 2 12s4.48 10 10 10 10-4.48 10-10S17.52 2 12 2zm1 15h-2v-2h2v2zm0-4h-2V7h2v6z"
+                fill="currentColor"
+              /></svg
+            >
+            {$t("settings.updateErrorDetail", {
+              values: { error: $updateState.error },
+            })}
           </span>
         </div>
       {/if}
@@ -206,11 +243,13 @@
 
   <!-- ── 資料 ── -->
   <section class="panel settings-section">
-    <h2 class="section-title">{$t('settings.data')}</h2>
+    <h2 class="section-title">{$t("settings.data")}</h2>
     <div class="section">
       <div class="opt row">
         <span class="hint mono">{dataDir}</span>
-        <button onclick={() => ipc.openDataFolder()}>{$t('settings.dataFolder')}</button>
+        <button onclick={() => ipc.openDataFolder()}
+          >{$t("settings.dataFolder")}</button
+        >
       </div>
     </div>
   </section>
@@ -218,12 +257,15 @@
 
 <ConfirmDialog
   bind:open={updateConfirmOpen}
-  title={$t('settings.updateConfirmTitle') as string}
-  message={$t('settings.updateConfirmBody', {
-    values: { version: $updateState?.latestVersion ?? '', current: $updateState?.currentVersion ?? '' },
+  title={$t("settings.updateConfirmTitle") as string}
+  message={$t("settings.updateConfirmBody", {
+    values: {
+      version: $updateState?.latestVersion ?? "",
+      current: $updateState?.currentVersion ?? "",
+    },
   }) as string}
-  confirmLabel={$t('settings.updateInstall') as string}
-  cancelLabel={$t('common.cancel') as string}
+  confirmLabel={$t("settings.updateInstall") as string}
+  cancelLabel={$t("common.cancel") as string}
   onconfirm={confirmUpdate}
 />
 
@@ -263,11 +305,17 @@
     justify-content: space-between;
   }
 
-  .opt > span { overflow-wrap: anywhere; min-width: 0; }
-  .opt select { max-width: 100%; }
-  .advanced-hint { display: block; font-size: 11.5px; }
-
-
+  .opt > span {
+    overflow-wrap: anywhere;
+    min-width: 0;
+  }
+  .opt select {
+    max-width: 100%;
+  }
+  .advanced-hint {
+    display: block;
+    font-size: 11.5px;
+  }
 
   .tag {
     background: var(--surface-2);
@@ -286,7 +334,7 @@
   }
 
   .mono {
-    font-family: 'IBM Plex Sans TC', monospace;
+    font-family: "IBM Plex Sans TC", monospace;
     font-size: 11px;
   }
 </style>

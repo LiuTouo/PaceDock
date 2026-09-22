@@ -126,7 +126,12 @@ pub fn validate_policy_snapshot(policy: &AffinityPolicy) -> Result<(), String> {
         if policy.assignment_set_override.value_type != Some(REG_BINARY_TYPE) {
             return Err("AssignmentSetOverride 型別非法（必為 REG_BINARY）".to_string());
         }
-        match policy.assignment_set_override.bytes.as_ref().map(|b| b.len()) {
+        match policy
+            .assignment_set_override
+            .bytes
+            .as_ref()
+            .map(|b| b.len())
+        {
             Some(len) if (1..=MAX_OVERRIDE_BYTES).contains(&len) => {}
             _ => {
                 return Err(format!(

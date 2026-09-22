@@ -4405,11 +4405,8 @@ mod tests {
     }
 
     fn temp_root(name: &str) -> std::path::PathBuf {
-        let dir = std::env::temp_dir().join(format!(
-            "pacedock_runner_{}_{}",
-            std::process::id(),
-            name
-        ));
+        let dir =
+            std::env::temp_dir().join(format!("pacedock_runner_{}_{}", std::process::id(), name));
         let _ = std::fs::remove_dir_all(&dir);
         std::fs::create_dir_all(&dir).unwrap();
         dir
@@ -8706,7 +8703,8 @@ mod tests {
                     result.detail.summary.quick.as_ref().unwrap().status,
                     RankingStatus::SingleCandidate
                 );
-                assert_eq!(result.detail.summary.capture_quality.total_captures, 4); // 2 基線 + 2 候選
+                assert_eq!(result.detail.summary.capture_quality.total_captures, 4);
+            // 2 基線 + 2 候選
             } else if mode == "cancel" {
                 assert_eq!(result.status, SessionStatus::Cancelled);
             } else {

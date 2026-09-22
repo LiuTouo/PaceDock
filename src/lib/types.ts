@@ -1,6 +1,6 @@
 ﻿// 與 PLAN §5 對應的 TS 型別。enum 字串值採 PascalCase（與 serde 序列化一致）。
 
-export type Theme = 'Dark' | 'Light';
+export type Theme = "Dark" | "Light";
 export interface Settings {
   language: string; // 'zh-TW' | 'en'
   startWithWindows: boolean;
@@ -54,13 +54,13 @@ export interface Topology {
 // ── 更新相關型別 ──
 
 export type UpdateStatus =
-  | 'Idle'
-  | 'Checking'
-  | 'UpToDate'
-  | 'Available'
-  | 'Downloading'
-  | 'Installing'
-  | 'Error';
+  | "Idle"
+  | "Checking"
+  | "UpToDate"
+  | "Available"
+  | "Downloading"
+  | "Installing"
+  | "Error";
 
 export interface UpdateState {
   status: UpdateStatus;
@@ -77,13 +77,15 @@ export interface UpdateInfo {
 
 // ── GPU 基準測試相關型別 ──
 
-export type SessionStatus = 'Pending' | 'Running' | 'Completed' | 'Failed' | 'Cancelled';
-export type BenchmarkStage = 'Init' | 'Warmup' | 'Collecting' | 'Finalizing';
-export type WorkloadKind = 'Vulkan' | 'D3D9';
-export type ReliabilityStatus = 'Unassessed' | 'Passed' | 'Equivalent' | 'Inconclusive';
-export type FpsCapPolicy = 'Adaptive' | 'Fixed';
-export type BenchmarkOperation = 'Benchmark' | 'EquivalentValidation';
-export type WindowLayout = 'Normal' | 'CompactProgress';
+export type SessionStatus =
+  "Pending" | "Running" | "Completed" | "Failed" | "Cancelled";
+export type BenchmarkStage = "Init" | "Warmup" | "Collecting" | "Finalizing";
+export type WorkloadKind = "Vulkan" | "D3D9";
+export type ReliabilityStatus =
+  "Unassessed" | "Passed" | "Equivalent" | "Inconclusive";
+export type FpsCapPolicy = "Adaptive" | "Fixed";
+export type BenchmarkOperation = "Benchmark" | "EquivalentValidation";
+export type WindowLayout = "Normal" | "CompactProgress";
 
 /** 可靠性/信心摘要（camelCase，與後端 ReliabilitySummary 一致） */
 export interface ReliabilitySummary {
@@ -184,11 +186,11 @@ export interface LpResult {
 
 /** 執行期 progress 事件（`gpu-benchmark-progress`） */
 export type BenchmarkPhase =
-  | 'Screening'
-  | 'Refinement'
-  | 'Confirmation'
-  | 'ReverseConfirmation'
-  | 'EquivalentValidation';
+  | "Screening"
+  | "Refinement"
+  | "Confirmation"
+  | "ReverseConfirmation"
+  | "EquivalentValidation";
 
 export interface BenchmarkProgress {
   target?: CoreTarget | null;
@@ -270,7 +272,8 @@ export interface EnvironmentStability {
 }
 
 /** 等效安全驗證狀態（serde PascalCase；default None） */
-export type EquivalentSafetyStatus = 'None' | 'Pending' | 'Passed' | 'Failed' | 'Cancelled';
+export type EquivalentSafetyStatus =
+  "None" | "Pending" | "Passed" | "Failed" | "Cancelled";
 
 /** 等效安全驗證 contract（camelCase，與後端 EquivalentSafetyValidation 一致） */
 export interface EquivalentSafetyValidation {
@@ -329,7 +332,7 @@ export interface BenchmarkState {
   windowIntegrity?: WindowIntegrity; // workload 視窗完整性快照
   cancelStage?: string | null; // 取消專用階段（requested/stopping/restoring/finalizing）；無取消為 null
   cancelProgress?: number | null; // 取消專用百分比 0..100；無取消為 null
-  policyDrift?: 'Match' | 'Drifted' | 'None' | null; // 已套用政策 vs 目前 registry
+  policyDrift?: "Match" | "Drifted" | "None" | null; // 已套用政策 vs 目前 registry
   appliedCore?: number | null; // 已套用核心（對應 policyDrift）
 }
 
@@ -348,7 +351,7 @@ export interface AffinityPolicy {
 }
 
 /** 系統環境健檢（唯讀探針結果） */
-export type HealthStatus = 'Ok' | 'Warn' | 'Info' | 'Unknown';
+export type HealthStatus = "Ok" | "Warn" | "Info" | "Unknown";
 export interface HealthCheck {
   id: string;
   status: HealthStatus;
@@ -364,7 +367,7 @@ export interface MsiStatus {
 }
 
 /** 電源微調種類（Usb = USB 選擇性暫停；Aspm = PCIe ASPM） */
-export type PowerTweakKind = 'Usb' | 'Aspm';
+export type PowerTweakKind = "Usb" | "Aspm";
 
 /** 電源微調狀態（值 null = 讀不到；restorable = 此前由 PaceDock 套用、可還原） */
 export interface PowerTweaksStatus {
@@ -377,7 +380,7 @@ export interface PowerTweaksStatus {
 
 /** 套用後落點驗證：目標驅動 ISR+DPC 實測落在釘選 LP 的佔比 */
 export interface InterruptVerification {
-  verdict: 'passed' | 'failed' | 'inconclusive';
+  verdict: "passed" | "failed" | "inconclusive";
   pinnedEvents: number;
   totalEvents: number;
   onPinnedPct: number;
@@ -404,16 +407,29 @@ export interface StorageInfo {
   sessionCount: number;
 }
 
-export interface CoreTarget { coreId: number; lpIndices: number[] }
-export interface QuickSchedule {
-  screeningWarmupSecs: number; screeningSampleSecs: number;
-  retestWarmupSecs: number; retestSampleSecs: number;
-  candidateCaptures: number; estimatedMinSecs: number; estimatedMaxSecs: number;
+export interface CoreTarget {
+  coreId: number;
+  lpIndices: number[];
 }
-export interface CoreCapture { target: CoreTarget; metrics: LpResult; score: number }
-export type RankingStatus = 'Consistent' | 'Close' | 'Reversed' | 'SingleCandidate' | 'Insufficient';
+export interface QuickSchedule {
+  screeningWarmupSecs: number;
+  screeningSampleSecs: number;
+  retestWarmupSecs: number;
+  retestSampleSecs: number;
+  candidateCaptures: number;
+  estimatedMinSecs: number;
+  estimatedMaxSecs: number;
+}
+export interface CoreCapture {
+  target: CoreTarget;
+  metrics: LpResult;
+  score: number;
+}
+export type RankingStatus =
+  "Consistent" | "Close" | "Reversed" | "SingleCandidate" | "Insufficient";
 /** 勝出候選 vs 原始策略（OS 預設）的對照結論（只影響推薦文案） */
-export type BaselineVerdict = 'BeatsDefault' | 'WithinThreshold' | 'Worse' | 'Inconclusive';
+export type BaselineVerdict =
+  "BeatsDefault" | "WithinThreshold" | "Worse" | "Inconclusive";
 export interface BaselineCompare {
   verdict: BaselineVerdict;
   p1ImprovementPct: number | null; // 正 = 勝出者較佳
@@ -422,10 +438,16 @@ export interface BaselineCompare {
 }
 
 export interface QuickResult {
-  methodVersion: number; candidates: CoreTarget[]; seed: number;
-  screeningOrder: number[]; retestOrder: number[]; schedule: QuickSchedule;
-  screening: CoreCapture[]; retest: CoreCapture[];
-  status: RankingStatus; relativeGapPct: number | null;
+  methodVersion: number;
+  candidates: CoreTarget[];
+  seed: number;
+  screeningOrder: number[];
+  retestOrder: number[];
+  schedule: QuickSchedule;
+  screening: CoreCapture[];
+  retest: CoreCapture[];
+  status: RankingStatus;
+  relativeGapPct: number | null;
   baseline?: BaselineCompare | null; // 舊 session 無此欄位
 }
 

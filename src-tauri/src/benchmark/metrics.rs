@@ -499,16 +499,16 @@ pub fn compute_display_metrics(series: &DisplaySeries) -> DisplayMetrics {
     let fps = frame_times_to_fps(&series.intervals);
     DisplayMetrics {
         displayed_avg_fps: (!series.intervals.is_empty())
-            .then(|| 1000.0 / (series.intervals.iter().sum::<f64>() / series.intervals.len() as f64))
+            .then(|| {
+                1000.0 / (series.intervals.iter().sum::<f64>() / series.intervals.len() as f64)
+            })
             .filter(|v| v.is_finite()),
         displayed_p1_low: n_pct_low_fps(&fps, 0.01),
-        display_latency_avg_ms: (!series.latencies.is_empty()).then(|| {
-            series.latencies.iter().sum::<f64>() / series.latencies.len() as f64
-        }),
+        display_latency_avg_ms: (!series.latencies.is_empty())
+            .then(|| series.latencies.iter().sum::<f64>() / series.latencies.len() as f64),
         display_latency_p99_ms: percentile_fps(&series.latencies, 0.99),
-        dropped_pct: (series.dropped_seen && series.presents > 0).then(|| {
-            series.dropped_count as f64 / series.presents as f64 * 100.0
-        }),
+        dropped_pct: (series.dropped_seen && series.presents > 0)
+            .then(|| series.dropped_count as f64 / series.presents as f64 * 100.0),
     }
 }
 

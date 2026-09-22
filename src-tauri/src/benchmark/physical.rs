@@ -252,8 +252,7 @@ pub fn compare_baseline(winner: &LpResult, baselines: &[LpResult]) -> BaselineCo
         };
     }
     // 勝過預設：p1 改善達標、avg 無明顯退步、MAD/spike 無明顯惡化
-    let guards: [fn(&LpResult) -> Option<f64>; 2] =
-        [|b| b.frametime_mad_pct, |b| b.spike_rate_pct];
+    let guards: [fn(&LpResult) -> Option<f64>; 2] = [|b| b.frametime_mad_pct, |b| b.spike_rate_pct];
     let robust_ok = guards.iter().all(|f| match (metric(*f), (*f)(winner)) {
         (Some(base), Some(w)) if base > 0.0 && w.is_finite() => {
             (w / base - 1.0) * 100.0 <= BASELINE_ROBUST_MAX_REGRESS_PCT

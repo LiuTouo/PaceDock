@@ -864,7 +864,7 @@ mod tests {
         dpc_stop(&mut data, 7, 2_000_000 + 60_000); // 6ms
         dpc_start(&mut data, 0x9010, 3, 3_000_000);
         dpc_stop(&mut data, 3, 3_000_000 + 10_000); // 1ms
-        // 無配對的 stop 不計、不 invalid
+                                                    // 無配對的 stop 不計、不 invalid
         dpc_stop(&mut data, 9, 5_000_000);
         assert!(!data.invalid);
         // 目標驅動 DPC 落在 LP 7，共 8ms

@@ -311,10 +311,7 @@ mod tests {
         std::fs::write(&path, "old").unwrap();
         atomic_write(&path, "new").unwrap();
         assert_eq!(std::fs::read_to_string(&path).unwrap(), "new");
-        let prefix = format!(
-            ".pacedock_test_{}_atomic_replace.json.",
-            std::process::id()
-        );
+        let prefix = format!(".pacedock_test_{}_atomic_replace.json.", std::process::id());
         let leftover = std::fs::read_dir(std::env::temp_dir())
             .unwrap()
             .flatten()

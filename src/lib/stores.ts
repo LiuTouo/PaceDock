@@ -1,4 +1,4 @@
-import { writable } from 'svelte/store';
+import { writable } from "svelte/store";
 import type {
   AffinityPolicy,
   BenchmarkProgress,
@@ -8,7 +8,7 @@ import type {
   Settings,
   Topology,
   UpdateState,
-} from './types';
+} from "./types";
 
 export const topology = writable<Topology | null>(null);
 export const settings = writable<Settings | null>(null);

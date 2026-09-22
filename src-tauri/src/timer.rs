@@ -7,8 +7,8 @@
 //! - Win11 起背景/隱藏視窗行程的請求會被節流；本行程持有請求時對「自己」施加
 //!   節流豁免（`apply_self_exempt`），故縮小/隱藏視窗後 0.5 ms 仍被核心採納。
 
-use std::ffi::c_void;
 use std::collections::HashMap;
+use std::ffi::c_void;
 use std::sync::atomic::{AtomicBool, Ordering};
 use std::sync::{Mutex, OnceLock, RwLock};
 
@@ -19,11 +19,11 @@ use windows::Win32::System::Power::{
     PowerRegisterSuspendResumeNotification, DEVICE_NOTIFY_SUBSCRIBE_PARAMETERS,
 };
 use windows::Win32::System::Registry::{
-    RegCloseKey, RegDeleteValueW, RegOpenKeyExW, RegQueryValueExW, RegSetValueExW,
-    HKEY, HKEY_LOCAL_MACHINE, KEY_QUERY_VALUE, KEY_SET_VALUE, REG_DWORD,
+    RegCloseKey, RegDeleteValueW, RegOpenKeyExW, RegQueryValueExW, RegSetValueExW, HKEY,
+    HKEY_LOCAL_MACHINE, KEY_QUERY_VALUE, KEY_SET_VALUE, REG_DWORD,
 };
 use windows::Win32::System::Threading::{
-    GetCurrentProcess, OpenProcess, SetProcessInformation, ProcessPowerThrottling,
+    GetCurrentProcess, OpenProcess, ProcessPowerThrottling, SetProcessInformation,
     PROCESS_POWER_THROTTLING_CURRENT_VERSION, PROCESS_POWER_THROTTLING_IGNORE_TIMER_RESOLUTION,
     PROCESS_POWER_THROTTLING_STATE, PROCESS_SET_LIMITED_INFORMATION,
 };
@@ -67,7 +67,9 @@ pub fn request() -> (Result<(), String>, Option<u32>) {
             let status = unsafe { f(REQUEST_HUNDRED_NS, 1, &mut current) };
             if status < 0 {
                 (
-                    Err(format!("NtSetTimerResolution 失敗: NTSTATUS {status:#010x}")),
+                    Err(format!(
+                        "NtSetTimerResolution 失敗: NTSTATUS {status:#010x}"
+                    )),
                     None,
                 )
             } else {
@@ -103,11 +105,7 @@ pub fn release() -> Result<(), String> {
 /// 與 Sysinternals Clockres 的對應：min→"Minimum timer interval"、
 /// max→"Maximum timer interval"、current→"Current timer interval"。
 pub fn intervals() -> Option<(u32, u32, u32)> {
-    let ptr = resolve_ntdll(
-        s!("NtQueryTimerResolution"),
-        "NtQueryTimerResolution",
-    )
-    .ok()?;
+    let ptr = resolve_ntdll(s!("NtQueryTimerResolution"), "NtQueryTimerResolution").ok()?;
     let f: NtQueryTimerResolutionFn = unsafe { std::mem::transmute(ptr) };
     let mut min = 0u32;
     let mut max = 0u32;
@@ -183,12 +181,11 @@ pub fn init_power_watch() {
         return;
     }
     // 訂閱參數會在 callback 內被系統讀取 → 必須活得比本函式久，Box::leak 固定
-    let params: &'static mut DEVICE_NOTIFY_SUBSCRIBE_PARAMETERS = Box::leak(Box::new(
-        DEVICE_NOTIFY_SUBSCRIBE_PARAMETERS {
+    let params: &'static mut DEVICE_NOTIFY_SUBSCRIBE_PARAMETERS =
+        Box::leak(Box::new(DEVICE_NOTIFY_SUBSCRIBE_PARAMETERS {
             Callback: Some(power_callback),
             Context: std::ptr::null_mut(),
-        },
-    ));
+        }));
     let mut handle: *mut c_void = std::ptr::null_mut();
     // recipient 為參數結構指標（以 HANDLE 傳遞）；flags = DEVICE_NOTIFY_CALLBACK (2)
     let result = unsafe {
@@ -271,7 +268,9 @@ pub fn global_requests_enabled() -> Result<Option<bool>, String> {
             return Ok(None);
         }
         if status.is_err() {
-            return Err(format!("RegQueryValueExW(GlobalTimerResolutionRequests): {status:?}"));
+            return Err(format!(
+                "RegQueryValueExW(GlobalTimerResolutionRequests): {status:?}"
+            ));
         }
         Ok(Some(data != 0))
     }
@@ -407,10 +406,14 @@ pub fn set_exempt(pid: u32, exe_name: &str, enabled: bool) -> Result<(), String>
 
 /// 只讀已成功套用的行程（新行程由既有 3 秒 watcher 套用）。
 pub(crate) fn exemption_drift(include_self: bool) -> Option<bool> {
-    use windows::Win32::System::Threading::{GetProcessInformation, PROCESS_QUERY_LIMITED_INFORMATION};
+    use windows::Win32::System::Threading::{
+        GetProcessInformation, PROCESS_QUERY_LIMITED_INFORMATION,
+    };
     let entries = list_exempts();
     let mut pids: Vec<u32> = entries.into_iter().flat_map(|e| e.pids).collect();
-    if include_self { pids.push(std::process::id()); }
+    if include_self {
+        pids.push(std::process::id());
+    }
     let mut unknown = false;
     for pid in pids {
         unsafe {
@@ -422,16 +425,28 @@ pub(crate) fn exemption_drift(include_self: bool) -> Option<bool> {
                 Version: PROCESS_POWER_THROTTLING_CURRENT_VERSION,
                 ..Default::default()
             };
-            let read = GetProcessInformation(handle, ProcessPowerThrottling,
+            let read = GetProcessInformation(
+                handle,
+                ProcessPowerThrottling,
                 &mut state as *mut _ as *mut c_void,
-                std::mem::size_of::<PROCESS_POWER_THROTTLING_STATE>() as u32);
+                std::mem::size_of::<PROCESS_POWER_THROTTLING_STATE>() as u32,
+            );
             let _ = CloseHandle(handle);
-            if read.is_err() { unknown = true; continue; }
+            if read.is_err() {
+                unknown = true;
+                continue;
+            }
             let flag = PROCESS_POWER_THROTTLING_IGNORE_TIMER_RESOLUTION;
-            if state.ControlMask & flag == 0 || state.StateMask & flag != 0 { return Some(true) }
+            if state.ControlMask & flag == 0 || state.StateMask & flag != 0 {
+                return Some(true);
+            }
         }
     }
-    if unknown { None } else { Some(false) }
+    if unknown {
+        None
+    } else {
+        Some(false)
+    }
 }
 
 /// 目前豁免清單（以程式為鍵聚合；名單內未執行者 pids 為空；順手清掉已死的 pid）。

@@ -9,7 +9,7 @@ pub mod core_apply;
 use serde::{Deserialize, Serialize};
 
 use std::path::{Path, PathBuf};
-use std::sync::atomic::{AtomicBool, AtomicU8, AtomicU64, Ordering};
+use std::sync::atomic::{AtomicBool, AtomicU64, AtomicU8, Ordering};
 use std::sync::{Arc, RwLock};
 
 use tauri::{AppHandle, Emitter, Manager};
@@ -467,10 +467,7 @@ fn write_applied_record(path: &Path, record: &AppliedPolicyRecord) -> Result<(),
 
 /// 檢查已套用政策是否仍與 registry 一致（純比對，可注入路徑測試）。
 /// 無記錄/記錄損壞/讀取失敗 → DriftStatus::None（診斷面 fail-quiet，不誤報）。
-pub fn check_policy_drift_at(
-    backend: &dyn GpuBackend,
-    record_path: &Path,
-) -> DriftStatus {
+pub fn check_policy_drift_at(backend: &dyn GpuBackend, record_path: &Path) -> DriftStatus {
     let Ok(Some(record)) = load_applied_record(record_path) else {
         return DriftStatus::None;
     };
@@ -522,20 +519,32 @@ fn load_msi_record(path: &Path) -> Result<Option<RegistryValueSnapshot>, String>
 }
 
 /// 額外欄位由舊的快照 reader 忽略，保持還原記錄相容。
-fn write_msi_monitor_record(path: &Path, snapshot: &RegistryValueSnapshot, instance_id: &str) -> Result<(), String> {
+fn write_msi_monitor_record(
+    path: &Path,
+    snapshot: &RegistryValueSnapshot,
+    instance_id: &str,
+) -> Result<(), String> {
     let mut value = serde_json::to_value(snapshot).map_err(|e| e.to_string())?;
     value["instanceId"] = serde_json::Value::String(instance_id.to_string());
     crate::state_auth::auth_write(path, &value.to_string())
 }
 
 /// 呼叫端持有 GPU reservation。讀取失敗與無記錄分開，避免誤清警示。
-pub(crate) fn monitored_gpu_settings(backend: &dyn GpuBackend) -> Vec<(crate::drift::Setting, Option<bool>)> {
+pub(crate) fn monitored_gpu_settings(
+    backend: &dyn GpuBackend,
+) -> Vec<(crate::drift::Setting, Option<bool>)> {
     use crate::drift::Setting;
     let affinity = (|| -> Result<bool, String> {
         let path = applied_record_path();
-        if !path.try_exists().map_err(|e| e.to_string())? { return Ok(false) }
-        let Some(record) = load_applied_record(&path)? else { return Ok(false) };
-        let current = backend.read_affinity_policy(&record.instance_id).map_err(|e| e.code().to_string())?;
+        if !path.try_exists().map_err(|e| e.to_string())? {
+            return Ok(false);
+        }
+        let Some(record) = load_applied_record(&path)? else {
+            return Ok(false);
+        };
+        let current = backend
+            .read_affinity_policy(&record.instance_id)
+            .map_err(|e| e.code().to_string())?;
         let expected = AffinityPolicy {
             instance_id: record.instance_id,
             device_policy: RegistryValueSnapshot::dword(DEVICE_POLICY_SINGLE_PROCESSOR),
@@ -545,13 +554,18 @@ pub(crate) fn monitored_gpu_settings(backend: &dyn GpuBackend) -> Vec<(crate::dr
     })();
     let msi = (|| -> Result<bool, String> {
         let path = msi_record_path();
-        if !path.try_exists().map_err(|e| e.to_string())? { return Ok(false) }
-        let record: serde_json::Value = serde_json::from_str(&crate::state_auth::auth_read(&path)?).map_err(|e| e.to_string())?;
+        if !path.try_exists().map_err(|e| e.to_string())? {
+            return Ok(false);
+        }
+        let record: serde_json::Value = serde_json::from_str(&crate::state_auth::auth_read(&path)?)
+            .map_err(|e| e.to_string())?;
         let Some(id) = record.get("instanceId").and_then(|v| v.as_str()) else {
             // 舊記錄沒有裝置識別，不能以目前選取的 GPU 猜測。
             return Err("MSI record has no device identity".into());
         };
-        let actual = backend.read_msi_supported(id).map_err(|e| e.code().to_string())?;
+        let actual = backend
+            .read_msi_supported(id)
+            .map_err(|e| e.code().to_string())?;
         Ok(actual.as_dword() != Some(1))
     })();
     vec![(Setting::Gpu, affinity.ok()), (Setting::Msi, msi.ok())]
@@ -579,16 +593,25 @@ fn rollback_msi(
         Ok(()) => {
             let cleared = clear_msi_record(record_path);
             if cleared.is_ok() {
-                ApplyError { code: error_code.to_string(), clean: true }
+                ApplyError {
+                    code: error_code.to_string(),
+                    clean: true,
+                }
             } else {
                 log::error!("MSI rollback 清除記錄失敗: {cleared:?}");
-                ApplyError { code: error_code.to_string(), clean: false }
+                ApplyError {
+                    code: error_code.to_string(),
+                    clean: false,
+                }
             }
         }
         Err(e) => {
             log::error!("MSI mutation 還原失敗: {e}");
             let _ = clear_msi_record(record_path);
-            ApplyError { code: error_code.to_string(), clean: false }
+            ApplyError {
+                code: error_code.to_string(),
+                clean: false,
+            }
         }
     }
 }
@@ -632,7 +655,9 @@ pub fn apply_msi_to_gpu(
         .map_err(|e| ApplyError::clean(e.code()))?;
     if snapshot.as_dword() == Some(1) {
         // 明確對此裝置重新套用時，可補齊舊版記錄的識別，保留原始還原值。
-        if let Some(original) = load_msi_record(record_path).map_err(|_| ApplyError::clean(codes::GPU_APPLY_FAILED))? {
+        if let Some(original) =
+            load_msi_record(record_path).map_err(|_| ApplyError::clean(codes::GPU_APPLY_FAILED))?
+        {
             write_msi_monitor_record(record_path, &original, instance_id)
                 .map_err(|_| ApplyError::clean(codes::GPU_APPLY_FAILED))?;
         }
@@ -930,7 +955,9 @@ impl BenchmarkManager {
         if last != 0 && now.saturating_sub(last) < DRIFT_CHECK_INTERVAL_MS {
             return;
         }
-        let Ok(_guard) = self.reserve_mutation() else { return };
+        let Ok(_guard) = self.reserve_mutation() else {
+            return;
+        };
         self.drift_checked_at.store(now, Ordering::Relaxed);
         s.policy_drift = Some(check_policy_drift_at(
             self.backend.as_ref(),
@@ -4051,7 +4078,8 @@ mod tests {
         let path = dir.join("msi.json");
         let snapshot = RegistryValueSnapshot::dword(0);
         write_msi_monitor_record(&path, &snapshot, GPU_A).unwrap();
-        let value: serde_json::Value = serde_json::from_str(&crate::state_auth::auth_read(&path).unwrap()).unwrap();
+        let value: serde_json::Value =
+            serde_json::from_str(&crate::state_auth::auth_read(&path).unwrap()).unwrap();
         assert_eq!(value["instanceId"].as_str(), Some(GPU_A));
         assert_eq!(load_msi_record(&path).unwrap().unwrap(), snapshot);
         std::fs::remove_dir_all(dir).unwrap();
@@ -4060,11 +4088,20 @@ mod tests {
     #[test]
     fn drift_polling_keeps_cached_result_without_postponing_next_check() {
         let (manager, _) = manager_with_gpu(GPU_A);
-        let checked_at = std::time::SystemTime::now().duration_since(std::time::UNIX_EPOCH).unwrap().as_millis() as u64 - 1_000;
-        manager.drift_checked_at.store(checked_at, Ordering::Relaxed);
+        let checked_at = std::time::SystemTime::now()
+            .duration_since(std::time::UNIX_EPOCH)
+            .unwrap()
+            .as_millis() as u64
+            - 1_000;
+        manager
+            .drift_checked_at
+            .store(checked_at, Ordering::Relaxed);
         manager.state.write().unwrap().policy_drift = Some(DriftStatus::Drifted);
         for _ in 0..3 {
-            assert_eq!(manager.state_snapshot().policy_drift, Some(DriftStatus::Drifted));
+            assert_eq!(
+                manager.state_snapshot().policy_drift,
+                Some(DriftStatus::Drifted)
+            );
             assert_eq!(manager.drift_checked_at.load(Ordering::Relaxed), checked_at);
         }
     }
@@ -4080,7 +4117,8 @@ mod tests {
         apply_msi_to_gpu(&backend, &NoopSleeper, GPU_A, &path).unwrap();
         assert_eq!(backend.restart_count(), 0);
         assert_eq!(load_msi_record(&path).unwrap().unwrap(), original);
-        let value: serde_json::Value = serde_json::from_str(&crate::state_auth::auth_read(&path).unwrap()).unwrap();
+        let value: serde_json::Value =
+            serde_json::from_str(&crate::state_auth::auth_read(&path).unwrap()).unwrap();
         assert_eq!(value["instanceId"].as_str(), Some(GPU_A));
         std::fs::remove_dir_all(dir).unwrap();
     }

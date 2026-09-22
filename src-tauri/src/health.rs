@@ -68,7 +68,9 @@ fn collect_system_health() -> Vec<HealthCheck> {
 fn power_plan_status(scheme: Option<GUID>) -> (HealthStatus, String) {
     match scheme {
         Some(g) if g == GUID_BALANCED => (HealthStatus::Info, "balanced".into()),
-        Some(g) if g == GUID_HIGH_PERFORMANCE || g == GUID_ULTIMATE => (HealthStatus::Ok, "high-performance".into()),
+        Some(g) if g == GUID_HIGH_PERFORMANCE || g == GUID_ULTIMATE => {
+            (HealthStatus::Ok, "high-performance".into())
+        }
         Some(_) => (HealthStatus::Ok, "custom".into()),
         None => (HealthStatus::Unknown, String::new()),
     }
@@ -99,10 +101,7 @@ fn usb_suspend_status(ac: Option<u32>, dc: Option<u32>) -> (HealthStatus, String
 }
 
 /// GameDVR：兩個登錄值皆為 0 → Ok；任一非 0 → Warn；皆讀不到 → Unknown（單邊讀到即判定）。
-fn game_dvr_status(
-    app_capture: Option<u32>,
-    dvr_enabled: Option<u32>,
-) -> (HealthStatus, String) {
+fn game_dvr_status(app_capture: Option<u32>, dvr_enabled: Option<u32>) -> (HealthStatus, String) {
     let on = app_capture.is_some_and(|v| v != 0) || dvr_enabled.is_some_and(|v| v != 0);
     let status = if on {
         HealthStatus::Warn
@@ -140,14 +139,32 @@ pub(crate) fn active_scheme() -> Option<GUID> {
 
 /// 讀作用中計畫的 AC/DC 電源設定索引（ac=true → AC，否則 DC；失敗 → None）。
 /// pub(crate)：power.rs 套用後回讀驗證重用。
-pub(crate) fn ac_dc_value_index(scheme: GUID, subgroup: GUID, setting: GUID, ac: bool) -> Option<u32> {
+pub(crate) fn ac_dc_value_index(
+    scheme: GUID,
+    subgroup: GUID,
+    setting: GUID,
+    ac: bool,
+) -> Option<u32> {
     unsafe {
         let mut index = 0u32;
         // windows crate 不對稱：AC 版回 WIN32_ERROR、DC 版回 u32 — 統一成 raw code 比較
         let status = if ac {
-            PowerReadACValueIndex(None, Some(&scheme), Some(&subgroup), Some(&setting), &mut index).0
+            PowerReadACValueIndex(
+                None,
+                Some(&scheme),
+                Some(&subgroup),
+                Some(&setting),
+                &mut index,
+            )
+            .0
         } else {
-            PowerReadDCValueIndex(None, Some(&scheme), Some(&subgroup), Some(&setting), &mut index)
+            PowerReadDCValueIndex(
+                None,
+                Some(&scheme),
+                Some(&subgroup),
+                Some(&setting),
+                &mut index,
+            )
         };
         if status != 0 {
             return None;
@@ -179,14 +196,22 @@ fn read_dword(root: HKEY, subkey: &str, name: &str) -> Option<u32> {
 fn check_power_plan() -> HealthCheck {
     let scheme = active_scheme();
     let (status, detail) = power_plan_status(scheme);
-    HealthCheck { id: "powerPlan", status, detail }
+    HealthCheck {
+        id: "powerPlan",
+        status,
+        detail,
+    }
 }
 
 fn check_pcie_aspm() -> HealthCheck {
-    let value =
-        active_scheme().and_then(|s| ac_dc_value_index(s, GUID_SUB_PCIEXPRESS, GUID_PCIEXPRESS_ASPM, true));
+    let value = active_scheme()
+        .and_then(|s| ac_dc_value_index(s, GUID_SUB_PCIEXPRESS, GUID_PCIEXPRESS_ASPM, true));
     let (status, detail) = aspm_status(value);
-    HealthCheck { id: "pcieAspm", status, detail }
+    HealthCheck {
+        id: "pcieAspm",
+        status,
+        detail,
+    }
 }
 
 fn check_usb_selective_suspend() -> HealthCheck {
@@ -199,7 +224,11 @@ fn check_usb_selective_suspend() -> HealthCheck {
         })
         .unwrap_or((None, None));
     let (status, detail) = usb_suspend_status(ac, dc);
-    HealthCheck { id: "usbSelectiveSuspend", status, detail }
+    HealthCheck {
+        id: "usbSelectiveSuspend",
+        status,
+        detail,
+    }
 }
 
 fn check_game_dvr() -> HealthCheck {
@@ -214,7 +243,11 @@ fn check_game_dvr() -> HealthCheck {
         "GameDVR_Enabled",
     );
     let (status, detail) = game_dvr_status(app_capture, dvr_enabled);
-    HealthCheck { id: "gameDvr", status, detail }
+    HealthCheck {
+        id: "gameDvr",
+        status,
+        detail,
+    }
 }
 
 fn check_hags() -> HealthCheck {
@@ -224,7 +257,11 @@ fn check_hags() -> HealthCheck {
         "HwSchMode",
     );
     let (status, detail) = hags_status(value);
-    HealthCheck { id: "hags", status, detail }
+    HealthCheck {
+        id: "hags",
+        status,
+        detail,
+    }
 }
 
 #[cfg(test)]

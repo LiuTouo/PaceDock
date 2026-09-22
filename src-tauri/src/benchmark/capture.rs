@@ -140,9 +140,7 @@ fn is_candidate(
 
 /// exe 檔名是否在排除清單（timer 節流豁免的開 handle 防線也用這份）。
 pub(crate) fn is_blacklisted(exe: &str) -> bool {
-    EXE_BLACKLIST
-        .iter()
-        .any(|b| b.eq_ignore_ascii_case(exe))
+    EXE_BLACKLIST.iter().any(|b| b.eq_ignore_ascii_case(exe))
 }
 
 unsafe extern "system" fn enum_trampoline(hwnd: HWND, lparam: LPARAM) -> BOOL {
@@ -159,12 +157,8 @@ fn exe_name_of_pid(pid: u32) -> String {
         };
         let mut buf = [0u16; 1024];
         let mut len = buf.len() as u32;
-        let result = QueryFullProcessImageNameW(
-            h,
-            PROCESS_NAME_WIN32,
-            PWSTR(buf.as_mut_ptr()),
-            &mut len,
-        );
+        let result =
+            QueryFullProcessImageNameW(h, PROCESS_NAME_WIN32, PWSTR(buf.as_mut_ptr()), &mut len);
         let _ = windows::Win32::Foundation::CloseHandle(h);
         if result.is_err() || len == 0 {
             return String::new();
@@ -214,10 +208,7 @@ pub fn list_game_windows() -> Result<Vec<GameWindow>, String> {
                 let mut placement = WINDOWPLACEMENT::default();
                 if GetWindowPlacement(hwnd, &mut placement).is_ok() {
                     let r = placement.rcNormalPosition;
-                    (
-                        (r.right - r.left).max(0),
-                        (r.bottom - r.top).max(0),
-                    )
+                    ((r.right - r.left).max(0), (r.bottom - r.top).max(0))
                 } else {
                     (0, 0)
                 }
@@ -229,16 +220,38 @@ pub fn list_game_windows() -> Result<Vec<GameWindow>, String> {
                     (0, 0)
                 }
             };
-            (pid, title, visible, tool_window, cloaked != 0, minimized, w, h)
+            (
+                pid,
+                title,
+                visible,
+                tool_window,
+                cloaked != 0,
+                minimized,
+                w,
+                h,
+            )
         };
         let exe_name = exe_name_of_pid(pid);
         if !is_candidate(
-            self_pid, pid, &title, &exe_name, visible, tool_window, cloaked, minimized, w, h,
+            self_pid,
+            pid,
+            &title,
+            &exe_name,
+            visible,
+            tool_window,
+            cloaked,
+            minimized,
+            w,
+            h,
         ) {
             continue;
         }
         seen_pids.push(pid);
-        out.push(GameWindow { pid, title, exe_name });
+        out.push(GameWindow {
+            pid,
+            title,
+            exe_name,
+        });
     }
     Ok(out)
 }
@@ -263,8 +276,8 @@ pub fn list_captures() -> Result<Vec<GameCaptureRecord>, String> {
     if !dir.exists() {
         return Ok(out);
     }
-    for entry in std::fs::read_dir(&dir)
-        .map_err(|e| format!("{}: {e}", codes::BENCHMARK_STORAGE_FAILED))?
+    for entry in
+        std::fs::read_dir(&dir).map_err(|e| format!("{}: {e}", codes::BENCHMARK_STORAGE_FAILED))?
     {
         let Ok(entry) = entry else { continue };
         let path = entry.path();
@@ -338,7 +351,8 @@ pub fn run_game_capture(
     crate::benchmark::assets::verify(&assets).map_err(|e| e.code().to_string())?;
 
     let dir = captures_dir();
-    std::fs::create_dir_all(&dir).map_err(|e| format!("{}: {e}", codes::BENCHMARK_STORAGE_FAILED))?;
+    std::fs::create_dir_all(&dir)
+        .map_err(|e| format!("{}: {e}", codes::BENCHMARK_STORAGE_FAILED))?;
     let csv = dir.join(format!("{id}.csv"));
 
     // stale 輸出清除（與 run_capture 同語意：舊檔絕不能被當成當前輸出）
@@ -357,12 +371,10 @@ pub fn run_game_capture(
         &csv,
         &session_name,
     );
-    let pm_pid = pm_runner
-        .spawn(&assets.presentmon, &args)
-        .map_err(|e| {
-            log::warn!("PresentMon 啟動失敗: {e}");
-            codes::BENCHMARK_PRESENTMON_FAILED.to_string()
-        })?;
+    let pm_pid = pm_runner.spawn(&assets.presentmon, &args).map_err(|e| {
+        log::warn!("PresentMon 啟動失敗: {e}");
+        codes::BENCHMARK_PRESENTMON_FAILED.to_string()
+    })?;
 
     // 等待 PresentMon 自停（--timed + --terminate_after_timed）；可取消、有 deadline
     let started = Instant::now();
@@ -432,7 +444,9 @@ pub fn run_game_capture(
     // capture 當下的鎖定核心（before/after 對照用；best-effort，失敗不擋結果）
     let locked_lp = gpu_instance_id.as_deref().and_then(|instance| {
         match manager.backend.read_affinity_policy(instance) {
-            Ok(policy) => super::manager::mask_bytes_to_lp(policy.assignment_set_override.bytes.as_deref()),
+            Ok(policy) => {
+                super::manager::mask_bytes_to_lp(policy.assignment_set_override.bytes.as_deref())
+            }
             Err(e) => {
                 log::warn!("讀取 GPU policy 失敗（lockedLp 記為未知）: {}", e.code());
                 None
@@ -454,7 +468,8 @@ pub fn run_game_capture(
     let json = capture_json_path(&id)?;
     let text = serde_json::to_string_pretty(&record)
         .map_err(|e| format!("{}: {e}", codes::BENCHMARK_STORAGE_FAILED))?;
-    config::atomic_write(&json, &text).map_err(|e| format!("{}: {e}", codes::BENCHMARK_STORAGE_FAILED))?;
+    config::atomic_write(&json, &text)
+        .map_err(|e| format!("{}: {e}", codes::BENCHMARK_STORAGE_FAILED))?;
 
     emit_progress(app, &id, "done", 100);
     Ok(record)
@@ -466,12 +481,25 @@ mod tests {
 
     fn candidate(args: (u32, u32, &str, &str, bool, bool, bool, bool, i32, i32)) -> bool {
         let (self_pid, pid, title, exe, visible, tool, cloaked, minimized, w, h) = args;
-        is_candidate(self_pid, pid, title, exe, visible, tool, cloaked, minimized, w, h)
+        is_candidate(
+            self_pid, pid, title, exe, visible, tool, cloaked, minimized, w, h,
+        )
     }
 
     #[test]
     fn candidate_matrix_accepts_normal_game_window() {
-        assert!(candidate((1, 42, "Cyberpunk 2077", "cyberpunk2077.exe", true, false, false, false, 1920, 1080)));
+        assert!(candidate((
+            1,
+            42,
+            "Cyberpunk 2077",
+            "cyberpunk2077.exe",
+            true,
+            false,
+            false,
+            false,
+            1920,
+            1080
+        )));
     }
 
     /// 最小化視窗跳過尺寸檢查（GetWindowRect 回報極小還原位置會誤殺背景遊戲）；
@@ -479,31 +507,111 @@ mod tests {
     #[test]
     fn candidate_matrix_minimized_bypasses_size_floor() {
         // 最小化 + 極小 GetWindowRect → 仍為候選（用 placement 正常尺寸 2560x1440）
-        assert!(candidate((1, 42, "鬥陣特攻", "overwatch.exe", true, false, false, true, 199, 31)));
+        assert!(candidate((
+            1,
+            42,
+            "鬥陣特攻",
+            "overwatch.exe",
+            true,
+            false,
+            false,
+            true,
+            199,
+            31
+        )));
         // 未最小化 + 極小 → 拒絕（通知/toast）
-        assert!(!candidate((1, 42, "Toast", "game.exe", true, false, false, false, 199, 31)));
+        assert!(!candidate((
+            1, 42, "Toast", "game.exe", true, false, false, false, 199, 31
+        )));
         // 最小化但其他屬性不合格 → 仍拒絕
-        assert!(!candidate((1, 42, "鬥陣特攻", "overwatch.exe", false, false, false, true, 199, 31)));
-        assert!(!candidate((1, 42, "鬥陣特攻", "explorer.exe", true, false, false, true, 199, 31)));
+        assert!(!candidate((
+            1,
+            42,
+            "鬥陣特攻",
+            "overwatch.exe",
+            false,
+            false,
+            false,
+            true,
+            199,
+            31
+        )));
+        assert!(!candidate((
+            1,
+            42,
+            "鬥陣特攻",
+            "explorer.exe",
+            true,
+            false,
+            false,
+            true,
+            199,
+            31
+        )));
     }
 
     #[test]
     fn candidate_matrix_rejects_noise() {
         // 自身行程
-        assert!(!candidate((42, 42, "PaceDock", "pacedock.exe", true, false, false, false, 800, 600)));
+        assert!(!candidate((
+            42,
+            42,
+            "PaceDock",
+            "pacedock.exe",
+            true,
+            false,
+            false,
+            false,
+            800,
+            600
+        )));
         // 黑名單（大小寫不敏感）
-        assert!(!candidate((1, 7, "Settings", "explorer.exe", true, false, false, false, 1200, 800)));
-        assert!(!candidate((1, 7, "x", "MSEdgeWebView2.exe", true, false, false, false, 1200, 800)));
+        assert!(!candidate((
+            1,
+            7,
+            "Settings",
+            "explorer.exe",
+            true,
+            false,
+            false,
+            false,
+            1200,
+            800
+        )));
+        assert!(!candidate((
+            1,
+            7,
+            "x",
+            "MSEdgeWebView2.exe",
+            true,
+            false,
+            false,
+            false,
+            1200,
+            800
+        )));
         // 隱藏 / toolwindow / cloaked
-        assert!(!candidate((1, 9, "Game", "game.exe", false, false, false, false, 1200, 800)));
-        assert!(!candidate((1, 9, "Game", "game.exe", true, true, false, false, 1200, 800)));
-        assert!(!candidate((1, 9, "Game", "game.exe", true, false, true, false, 1200, 800)));
+        assert!(!candidate((
+            1, 9, "Game", "game.exe", false, false, false, false, 1200, 800
+        )));
+        assert!(!candidate((
+            1, 9, "Game", "game.exe", true, true, false, false, 1200, 800
+        )));
+        assert!(!candidate((
+            1, 9, "Game", "game.exe", true, false, true, false, 1200, 800
+        )));
         // 空標題
-        assert!(!candidate((1, 9, "  ", "game.exe", true, false, false, false, 1200, 800)));
+        assert!(!candidate((
+            1, 9, "  ", "game.exe", true, false, false, false, 1200, 800
+        )));
         // 太小（通知/toast）
-        assert!(!candidate((1, 9, "Toast", "game.exe", true, false, false, false, 300, 200)));
+        assert!(!candidate((
+            1, 9, "Toast", "game.exe", true, false, false, false, 300, 200
+        )));
         // PID 0
-        assert!(!candidate((1, 0, "Game", "game.exe", true, false, false, false, 1200, 800)));
+        assert!(!candidate((
+            1, 0, "Game", "game.exe", true, false, false, false, 1200, 800
+        )));
     }
 
     /// GameCaptureRecord serde camelCase roundtrip（含 lockedLp None、metrics 巢狀）。

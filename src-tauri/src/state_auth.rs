@@ -25,17 +25,20 @@ pub const MAX_AUTHENTICATED_SIZE: u64 = 1024 * 1024;
 fn key_dir() -> PathBuf {
     // FOLDERID_ProgramData：%PROGRAMDATA%（預設 DACL 給 Users 讀權，
     // 因此目錄本身必須以 admin-only DACL 建立）
-    let program_data = known_program_data().unwrap_or_else(|| {
-        PathBuf::from(std::env::var_os("ProgramData").unwrap_or_default())
-    });
+    let program_data = known_program_data()
+        .unwrap_or_else(|| PathBuf::from(std::env::var_os("ProgramData").unwrap_or_default()));
     program_data.join("PaceDock")
 }
 
 fn known_program_data() -> Option<PathBuf> {
     use windows::Win32::UI::Shell::{FOLDERID_ProgramData, SHGetKnownFolderPath};
     let path = unsafe {
-        SHGetKnownFolderPath(&FOLDERID_ProgramData, windows::Win32::UI::Shell::KNOWN_FOLDER_FLAG(0), None)
-            .ok()?
+        SHGetKnownFolderPath(
+            &FOLDERID_ProgramData,
+            windows::Win32::UI::Shell::KNOWN_FOLDER_FLAG(0),
+            None,
+        )
+        .ok()?
     };
     let s = unsafe { path.to_string() }.ok()?;
     Some(PathBuf::from(s))
@@ -108,7 +111,10 @@ fn mac_hex(data: &[u8]) -> Result<String, String> {
 }
 
 fn mac_sidecar_path(path: &Path) -> PathBuf {
-    let mut name = path.file_name().map(|n| n.to_os_string()).unwrap_or_default();
+    let mut name = path
+        .file_name()
+        .map(|n| n.to_os_string())
+        .unwrap_or_default();
     name.push(".mac");
     path.with_file_name(name)
 }

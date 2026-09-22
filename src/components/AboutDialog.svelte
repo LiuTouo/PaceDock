@@ -1,41 +1,49 @@
 <script lang="ts">
-  import { t } from 'svelte-i18n';
-  import { updateState, isPortable } from '../lib/stores';
-  import type { UpdateStatus } from '../lib/types';
-  import { checkForUpdates, installUpdate } from '../lib/updater';
-  import ConfirmDialog from './ConfirmDialog.svelte';
+  import { t } from "svelte-i18n";
+  import { updateState, isPortable } from "../lib/stores";
+  import type { UpdateStatus } from "../lib/types";
+  import { checkForUpdates, installUpdate } from "../lib/updater";
+  import ConfirmDialog from "./ConfirmDialog.svelte";
 
   let { open = $bindable(false) }: { open?: boolean } = $props();
 
   let confirmOpen = $state(false);
-  let checking = $derived($updateState?.status === 'Checking');
+  let checking = $derived($updateState?.status === "Checking");
   let installing = $derived(
-    $updateState?.status === 'Downloading' || $updateState?.status === 'Installing',
+    $updateState?.status === "Downloading" ||
+      $updateState?.status === "Installing",
   );
 
   // 開啟對話框時自動檢查一次（狀態未知/Idle 才觸發；手動檢查按鈕常駐）
   $effect(() => {
-    if (open && $updateState?.status === 'Idle') void checkForUpdates();
+    if (open && $updateState?.status === "Idle") void checkForUpdates();
   });
 
   function onkeydown(event: KeyboardEvent) {
     if (!open) return;
-    if (event.key === 'Escape') {
+    if (event.key === "Escape") {
       event.stopPropagation();
       open = false;
     }
   }
 
   function statusLabel(s: UpdateStatus | null): string {
-    if (!s) return '';
+    if (!s) return "";
     switch (s) {
-      case 'Checking': return $t('settings.updateChecking') as string;
-      case 'UpToDate': return $t('settings.updateUpToDate') as string;
-      case 'Available': return $t('settings.updateAvailable') as string;
-      case 'Downloading': return $t('settings.updateDownloading') as string;
-      case 'Installing': return $t('settings.updateInstalling') as string;
-      case 'Error': return $t('settings.updateError') as string;
-      default: return '';
+      case "Checking":
+        return $t("settings.updateChecking") as string;
+      case "UpToDate":
+        return $t("settings.updateUpToDate") as string;
+      case "Available":
+        return $t("settings.updateAvailable") as string;
+      case "Downloading":
+        return $t("settings.updateDownloading") as string;
+      case "Installing":
+        return $t("settings.updateInstalling") as string;
+      case "Error":
+        return $t("settings.updateError") as string;
+      default:
+        return "";
     }
   }
 </script>
@@ -51,21 +59,31 @@
       role="dialog"
       aria-modal="true"
       tabindex="-1"
-      aria-label={$t('about.title') as string}
+      aria-label={$t("about.title") as string}
       onclick={(event) => event.stopPropagation()}
     >
       <div class="brand">
         <svg class="brand-icon" viewBox="0 0 24 24" aria-hidden="true">
-          <path d="M12 2L2 7l10 5 10-5-10-5zM2 17l10 5 10-5M2 12l10 5 10-5" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"/>
+          <path
+            d="M12 2L2 7l10 5 10-5-10-5zM2 17l10 5 10-5M2 12l10 5 10-5"
+            fill="none"
+            stroke="currentColor"
+            stroke-width="2"
+            stroke-linecap="round"
+            stroke-linejoin="round"
+          />
         </svg>
-        <span class="brand-text">Pace<span class="brand-accent">Dock</span></span>
+        <span class="brand-text"
+          >Pace<span class="brand-accent">Dock</span></span
+        >
       </div>
 
       <div class="opt">
         <span class="hint">
-          {$t('settings.version')} {$updateState?.currentVersion ?? '0.0.0'}
+          {$t("settings.version")}
+          {$updateState?.currentVersion ?? "0.0.0"}
           {#if $isPortable}
-            <span class="tag">{$t('settings.portableBuild')}</span>
+            <span class="tag">{$t("settings.portableBuild")}</span>
           {/if}
         </span>
       </div>
@@ -73,25 +91,35 @@
       <!-- ── 更新欄位：狀態 + 手動檢查 + 安裝 ── -->
       <div class="opt row">
         <span class="hint">
-          {#if $updateState && $updateState.status !== 'Idle'}
+          {#if $updateState && $updateState.status !== "Idle"}
             {statusLabel($updateState.status)}
-            {#if $updateState.latestVersion && $updateState.status === 'Available'}
+            {#if $updateState.latestVersion && $updateState.status === "Available"}
               · {$updateState.latestVersion}
             {/if}
-            {#if $updateState.progress !== null && $updateState.status === 'Downloading'}
+            {#if $updateState.progress !== null && $updateState.status === "Downloading"}
               · {$updateState.progress}%
             {/if}
           {/if}
         </span>
         <span class="actions">
-          {#if $updateState?.status === 'Available'}
-            <button class="primary" onclick={() => (confirmOpen = true)} disabled={installing}>
-              {$t('settings.updateInstall')}
+          {#if $updateState?.status === "Available"}
+            <button
+              class="primary"
+              onclick={() => (confirmOpen = true)}
+              disabled={installing}
+            >
+              {$t("settings.updateInstall")}
             </button>
           {/if}
-          {#if $updateState?.status !== 'Downloading' && $updateState?.status !== 'Installing'}
-            <button onclick={() => void checkForUpdates()} disabled={checking || installing} aria-busy={checking}>
-              {checking ? $t('settings.updateChecking') : $t('settings.updateCheck')}
+          {#if $updateState?.status !== "Downloading" && $updateState?.status !== "Installing"}
+            <button
+              onclick={() => void checkForUpdates()}
+              disabled={checking || installing}
+              aria-busy={checking}
+            >
+              {checking
+                ? $t("settings.updateChecking")
+                : $t("settings.updateCheck")}
             </button>
           {/if}
         </span>
@@ -99,12 +127,14 @@
 
       {#if $updateState?.error}
         <p class="error" role="alert">
-          {$t('settings.updateErrorDetail', { values: { error: $updateState.error } })}
+          {$t("settings.updateErrorDetail", {
+            values: { error: $updateState.error },
+          })}
         </p>
       {/if}
 
       <div class="close-row">
-        <button onclick={() => (open = false)}>{$t('about.close')}</button>
+        <button onclick={() => (open = false)}>{$t("about.close")}</button>
       </div>
     </div>
   </div>
@@ -112,12 +142,15 @@
 
 <ConfirmDialog
   bind:open={confirmOpen}
-  title={$t('settings.updateConfirmTitle') as string}
-  message={$t('settings.updateConfirmBody', {
-    values: { version: $updateState?.latestVersion ?? '', current: $updateState?.currentVersion ?? '' },
+  title={$t("settings.updateConfirmTitle") as string}
+  message={$t("settings.updateConfirmBody", {
+    values: {
+      version: $updateState?.latestVersion ?? "",
+      current: $updateState?.currentVersion ?? "",
+    },
   }) as string}
-  confirmLabel={$t('settings.updateInstall') as string}
-  cancelLabel={$t('common.cancel') as string}
+  confirmLabel={$t("settings.updateInstall") as string}
+  cancelLabel={$t("common.cancel") as string}
   onconfirm={() => void installUpdate()}
 />
 

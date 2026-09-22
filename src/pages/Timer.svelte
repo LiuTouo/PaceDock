@@ -1,8 +1,8 @@
 <script lang="ts">
-  import { t } from 'svelte-i18n';
-  import * as ipc from '../lib/ipc';
-  import { settings } from '../lib/stores';
-  import type { GameWindow, TimerExemptEntry, TimerStatus } from '../lib/types';
+  import { t } from "svelte-i18n";
+  import * as ipc from "../lib/ipc";
+  import { settings } from "../lib/stores";
+  import type { GameWindow, TimerExemptEntry, TimerStatus } from "../lib/types";
 
   // 計時器三值（Clockres 式）：僅按下手動偵測時查詢，不自動輪詢
   let status = $state<TimerStatus | null>(null);
@@ -17,7 +17,7 @@
 
   // 遊戲節流豁免
   let games = $state<GameWindow[]>([]);
-  let exemptGame = $state('');
+  let exemptGame = $state("");
   let refreshingGames = $state(false);
   let exempts = $state<TimerExemptEntry[]>([]);
 
@@ -38,7 +38,8 @@
     refreshingGames = true;
     try {
       games = await ipc.listGameWindows();
-      if (!games.some((g) => String(g.pid) === exemptGame)) exemptGame = games[0] ? String(games[0].pid) : '';
+      if (!games.some((g) => String(g.pid) === exemptGame))
+        exemptGame = games[0] ? String(games[0].pid) : "";
       saveError = null;
     } catch (e) {
       saveError = String(e); // 枚舉失敗必須可見（例如後端未重建、command 不存在）
@@ -50,8 +51,14 @@
   // 掛載時單次讀取（不輪詢）：全域登錄值狀態、遊戲清單、目前豁免清單
   $effect(() => {
     void refreshGames();
-    void ipc.getTimerGlobalEnabled().then((v) => (globalEnabled = v)).catch(() => {});
-    void ipc.listTimerExempts().then((v) => (exempts = v)).catch(() => {});
+    void ipc
+      .getTimerGlobalEnabled()
+      .then((v) => (globalEnabled = v))
+      .catch(() => {});
+    void ipc
+      .listTimerExempts()
+      .then((v) => (exempts = v))
+      .catch(() => {});
   });
 
   async function toggle(checked: boolean) {
@@ -99,7 +106,9 @@
     try {
       await ipc.setTimerExempt(game.exeName, true);
       exempts = await ipc.listTimerExempts();
-      syncStorePrograms([...new Set([...($settings?.timerExemptPrograms ?? []), game.exeName])]);
+      syncStorePrograms([
+        ...new Set([...($settings?.timerExemptPrograms ?? []), game.exeName]),
+      ]);
       saveError = null;
     } catch (e) {
       saveError = String(e);
@@ -110,7 +119,11 @@
     try {
       await ipc.setTimerExempt(entry.exeName, false);
       exempts = await ipc.listTimerExempts();
-      syncStorePrograms(($settings?.timerExemptPrograms ?? []).filter((p) => p !== entry.exeName));
+      syncStorePrograms(
+        ($settings?.timerExemptPrograms ?? []).filter(
+          (p) => p !== entry.exeName,
+        ),
+      );
       saveError = null;
     } catch (e) {
       saveError = String(e);
@@ -120,14 +133,16 @@
 
 {#if $settings}
   {#if saveError}
-    <div class="panel error" role="alert">{$t('settings.saveFailed', { values: { error: saveError } })}</div>
+    <div class="panel error" role="alert">
+      {$t("settings.saveFailed", { values: { error: saveError } })}
+    </div>
   {/if}
 
   <!-- ── 常駐請求 ── -->
   <section class="panel">
-    <h2>{$t('settings.highPrecisionTimer')}</h2>
+    <h2>{$t("settings.highPrecisionTimer")}</h2>
     <label class="row">
-      <span>{$t('settings.highPrecisionTimerEnable')}</span>
+      <span>{$t("settings.highPrecisionTimerEnable")}</span>
       <input
         type="checkbox"
         checked={$settings.highPrecisionTimer}
@@ -135,15 +150,15 @@
         onchange={(e) => toggle(e.currentTarget.checked)}
       />
     </label>
-    <p class="hint">{$t('settings.highPrecisionTimerHint')}</p>
+    <p class="hint">{$t("settings.highPrecisionTimerHint")}</p>
   </section>
 
   <!-- ── 全域模式（登錄值）── -->
   <section class="panel">
-    <h2>{$t('timer.globalTitle')}</h2>
-    <p class="hint">{$t('timer.globalHint')}</p>
+    <h2>{$t("timer.globalTitle")}</h2>
+    <p class="hint">{$t("timer.globalHint")}</p>
     <label class="row">
-      <span>{$t('timer.globalEnable')}</span>
+      <span>{$t("timer.globalEnable")}</span>
       <input
         type="checkbox"
         checked={globalEnabled === true}
@@ -153,60 +168,84 @@
     </label>
     <p class="hint">
       {globalEnabled === true
-        ? $t('timer.globalStatusOn')
-        : $t('timer.globalStatusOff')}
+        ? $t("timer.globalStatusOn")
+        : $t("timer.globalStatusOff")}
     </p>
     {#if rebootPending}
-      <p class="hint">{$t('timer.globalReboot')}</p>
+      <p class="hint">{$t("timer.globalReboot")}</p>
     {/if}
   </section>
 
   <!-- ── 遊戲節流豁免（持久化名單）── -->
   <section class="panel">
-    <h2>{$t('timer.exemptTitle')}</h2>
-    <p class="hint">{$t('timer.exemptHint')}</p>
+    <h2>{$t("timer.exemptTitle")}</h2>
+    <p class="hint">{$t("timer.exemptHint")}</p>
     <div class="row">
       <select bind:value={exemptGame}>
-        <option value="" disabled hidden>{$t('timer.exemptPick')}</option>
-        {#each games as game}<option value={String(game.pid)}>{game.title} — {game.exeName}</option>{/each}
+        <option value="" disabled hidden>{$t("timer.exemptPick")}</option>
+        {#each games as game}<option value={String(game.pid)}
+            >{game.title} — {game.exeName}</option
+          >{/each}
       </select>
-      <button class="primary" disabled={!exemptGame} onclick={addExempt}>{$t('timer.exemptAdd')}</button>
-      <button disabled={refreshingGames} onclick={() => void refreshGames()}>{$t('measure.refresh')}</button>
+      <button class="primary" disabled={!exemptGame} onclick={addExempt}
+        >{$t("timer.exemptAdd")}</button
+      >
+      <button disabled={refreshingGames} onclick={() => void refreshGames()}
+        >{$t("measure.refresh")}</button
+      >
     </div>
     {#if !exempts.length}
-      <p class="hint">{$t('timer.exemptNone')}</p>
+      <p class="hint">{$t("timer.exemptNone")}</p>
     {:else}
       <ul class="exempt-list">
         {#each exempts as entry (entry.exeName)}
           <li>
             <span>
               {entry.exeName}
-              <small>{entry.pids.length ? `PID ${entry.pids.join(', ')}` : $t('timer.exemptNotRunning')}</small>
+              <small
+                >{entry.pids.length
+                  ? `PID ${entry.pids.join(", ")}`
+                  : $t("timer.exemptNotRunning")}</small
+              >
             </span>
-            <button class="danger" onclick={() => removeExempt(entry)}>{$t('timer.exemptRemove')}</button>
+            <button class="danger" onclick={() => removeExempt(entry)}
+              >{$t("timer.exemptRemove")}</button
+            >
           </li>
         {/each}
       </ul>
-      <p class="hint">{$t('timer.exemptNote')}</p>
+      <p class="hint">{$t("timer.exemptNote")}</p>
     {/if}
   </section>
 
   <!-- ── 計時器狀態（手動偵測）── -->
   <section class="panel">
-    <h2>{$t('timer.statusTitle')}</h2>
-    <p class="hint">{$t('timer.detectHint')}</p>
+    <h2>{$t("timer.statusTitle")}</h2>
+    <p class="hint">{$t("timer.detectHint")}</p>
     <div class="reading">
-      <span class="resolution" class:fast={$settings.highPrecisionTimer && (status?.currentResolutionMs ?? 16) <= 1}>
-        {#if status?.currentResolutionMs}{status.currentResolutionMs.toFixed(2)}<small> ms</small>{:else}—{/if}
+      <span
+        class="resolution"
+        class:fast={$settings.highPrecisionTimer &&
+          (status?.currentResolutionMs ?? 16) <= 1}
+      >
+        {#if status?.currentResolutionMs}{status.currentResolutionMs.toFixed(
+            2,
+          )}<small> ms</small>{:else}—{/if}
       </span>
-      <span class="dot" class:on={$settings.highPrecisionTimer} aria-hidden="true"></span>
+      <span
+        class="dot"
+        class:on={$settings.highPrecisionTimer}
+        aria-hidden="true"
+      ></span>
     </div>
     <div class="row">
-      <button class="primary" disabled={detecting} onclick={detect}>{$t('timer.detect')}</button>
+      <button class="primary" disabled={detecting} onclick={detect}
+        >{$t("timer.detect")}</button
+      >
     </div>
     {#if status?.minIntervalMs && status?.maxIntervalMs}
       <p class="hint">
-        {$t('timer.range', {
+        {$t("timer.range", {
           values: {
             min: status.minIntervalMs.toFixed(2),
             max: status.maxIntervalMs.toFixed(3),
@@ -216,10 +255,10 @@
     {/if}
     <p class="hint">
       {$settings.highPrecisionTimer
-        ? $t('timer.stateOn')
-        : $t('timer.stateOff')}
+        ? $t("timer.stateOn")
+        : $t("timer.stateOff")}
     </p>
-    <p class="hint">{$t('timer.globalNote')}</p>
+    <p class="hint">{$t("timer.globalNote")}</p>
   </section>
 {/if}
 

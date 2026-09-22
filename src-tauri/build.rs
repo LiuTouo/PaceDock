@@ -5,7 +5,8 @@ fn emit_builtin_digests(out_dir: &std::path::Path) {
     use sha2::{Digest, Sha256};
 
     fn sha256_file(path: &std::path::Path) -> String {
-        let bytes = std::fs::read(path).unwrap_or_else(|e| panic!("無法讀取 {}: {e}", path.display()));
+        let bytes =
+            std::fs::read(path).unwrap_or_else(|e| panic!("無法讀取 {}: {e}", path.display()));
         let mut h = Sha256::new();
         h.update(&bytes);
         format!("{:x}", h.finalize())
@@ -21,9 +22,16 @@ fn emit_builtin_digests(out_dir: &std::path::Path) {
             continue;
         }
         let mut parts = line.split_whitespace();
-        let hash = parts.next().unwrap_or_else(|| panic!("SHA256SUMS 行缺 hash: {line}"));
-        let file = parts.next().unwrap_or_else(|| panic!("SHA256SUMS 行缺檔名: {line}"));
-        assert!(hash.len() == 64 && hash.chars().all(|c| c.is_ascii_hexdigit()), "SHA256SUMS hash 格式錯誤: {hash}");
+        let hash = parts
+            .next()
+            .unwrap_or_else(|| panic!("SHA256SUMS 行缺 hash: {line}"));
+        let file = parts
+            .next()
+            .unwrap_or_else(|| panic!("SHA256SUMS 行缺檔名: {line}"));
+        assert!(
+            hash.len() == 64 && hash.chars().all(|c| c.is_ascii_hexdigit()),
+            "SHA256SUMS hash 格式錯誤: {hash}"
+        );
         entries.push(format!("    (\"{file}\", \"{}\"),", hash.to_lowercase()));
     }
     assert!(!entries.is_empty(), "SHA256SUMS 沒有內容");
@@ -46,11 +54,9 @@ fn emit_builtin_digests(out_dir: &std::path::Path) {
 }
 
 fn main() {
-    emit_builtin_digests(
-        &std::path::PathBuf::from(
-            std::env::var("OUT_DIR").expect("build script 需要 OUT_DIR"),
-        ),
-    );
+    emit_builtin_digests(&std::path::PathBuf::from(
+        std::env::var("OUT_DIR").expect("build script 需要 OUT_DIR"),
+    ));
 
     // requireAdministrator：調整其他進程 affinity 需要管理員權限。
     // 開機啟動走 Task Scheduler (ONLOGON + HIGHEST)，登入時不跳 UAC。

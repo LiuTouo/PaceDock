@@ -11,11 +11,11 @@
 //   3. 使用者從橫幅或 Settings 點安裝 → installUpdate() → confirm → downloadAndInstall
 //   4. 安裝後呼叫 relaunch() 重新啟動程序；NSIS passive 模式通常由安裝程式關閉本程序
 
-import { check } from '@tauri-apps/plugin-updater';
-import { relaunch } from '@tauri-apps/plugin-process';
-import { get } from 'svelte/store';
-import { updateState, isPortable, gpuOperationBusy } from './stores';
-import * as ipc from './ipc';
+import { check } from "@tauri-apps/plugin-updater";
+import { relaunch } from "@tauri-apps/plugin-process";
+import { get } from "svelte/store";
+import { updateState, isPortable, gpuOperationBusy } from "./stores";
+import * as ipc from "./ipc";
 
 type PendingUpdate = Awaited<ReturnType<typeof check>>;
 
@@ -24,7 +24,7 @@ let busy = false;
 
 /** 從 store 讀目前版本（若 store 為 null 則退回空字串） */
 function currentVersion(): string {
-  return get(updateState)?.currentVersion ?? '';
+  return get(updateState)?.currentVersion ?? "";
 }
 
 /** 檢查更新：安裝版用 updater plugin，可攜版用後端命令。重複呼叫會被並行鎖忽略。 */
@@ -35,7 +35,7 @@ export async function checkForUpdates(): Promise<void> {
   try {
     if (get(isPortable)) {
       updateState.set({
-        status: 'Checking',
+        status: "Checking",
         latestVersion: null,
         currentVersion: cv,
         progress: null,
@@ -44,7 +44,7 @@ export async function checkForUpdates(): Promise<void> {
       await ipc.checkPortableUpdate();
     } else {
       updateState.set({
-        status: 'Checking',
+        status: "Checking",
         latestVersion: null,
         currentVersion: cv,
         progress: null,
@@ -53,7 +53,7 @@ export async function checkForUpdates(): Promise<void> {
       pendingUpdate = await check();
       if (pendingUpdate) {
         updateState.set({
-          status: 'Available',
+          status: "Available",
           latestVersion: pendingUpdate.version,
           currentVersion: pendingUpdate.currentVersion,
           progress: null,
@@ -61,7 +61,7 @@ export async function checkForUpdates(): Promise<void> {
         });
       } else {
         updateState.set({
-          status: 'UpToDate',
+          status: "UpToDate",
           latestVersion: null,
           currentVersion: cv,
           progress: null,
@@ -71,7 +71,7 @@ export async function checkForUpdates(): Promise<void> {
     }
   } catch (e) {
     updateState.set({
-      status: 'Error',
+      status: "Error",
       latestVersion: null,
       currentVersion: cv,
       progress: null,
@@ -93,7 +93,7 @@ export async function installUpdate(): Promise<boolean> {
 
   const portable = get(isPortable);
   const curState = get(updateState);
-  if (!curState || curState.status !== 'Available') return false;
+  if (!curState || curState.status !== "Available") return false;
 
   busy = true;
   gpuOperationBusy.set(true);
@@ -110,7 +110,7 @@ export async function installUpdate(): Promise<boolean> {
           pendingUpdate = await check();
         } catch (e) {
           updateState.set({
-            status: 'Error',
+            status: "Error",
             latestVersion: null,
             currentVersion: cv,
             progress: null,
@@ -120,7 +120,7 @@ export async function installUpdate(): Promise<boolean> {
         }
         if (!pendingUpdate) {
           updateState.set({
-            status: 'UpToDate',
+            status: "UpToDate",
             latestVersion: null,
             currentVersion: cv,
             progress: null,
@@ -131,7 +131,7 @@ export async function installUpdate(): Promise<boolean> {
       }
 
       updateState.set({
-        status: 'Downloading',
+        status: "Downloading",
         latestVersion: pendingUpdate.version,
         currentVersion: cv,
         progress: 0,
@@ -141,7 +141,7 @@ export async function installUpdate(): Promise<boolean> {
       // NSIS passive 模式：安裝程式通常會關閉本程序再替換檔案。
       // 若到達此處，呼叫 relaunch() 確保程序重啟。
       updateState.set({
-        status: 'Installing',
+        status: "Installing",
         latestVersion: pendingUpdate.version,
         currentVersion: cv,
         progress: null,
@@ -154,7 +154,7 @@ export async function installUpdate(): Promise<boolean> {
 
     // 可攜版
     updateState.set({
-      status: 'Downloading',
+      status: "Downloading",
       latestVersion: null,
       currentVersion: cv,
       progress: 0,
@@ -165,7 +165,7 @@ export async function installUpdate(): Promise<boolean> {
     return true;
   } catch (e) {
     updateState.set({
-      status: 'Error',
+      status: "Error",
       latestVersion: null,
       currentVersion: cv,
       progress: null,
