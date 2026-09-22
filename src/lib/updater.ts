@@ -12,6 +12,7 @@
 //   4. 安裝後呼叫 relaunch() 重新啟動程序；NSIS passive 模式通常由安裝程式關閉本程序
 
 import { check } from "@tauri-apps/plugin-updater";
+import type { DownloadEvent } from "@tauri-apps/plugin-updater";
 import { relaunch } from "@tauri-apps/plugin-process";
 import { get } from "svelte/store";
 import { updateState, isPortable, gpuOperationBusy } from "./stores";
@@ -21,6 +22,12 @@ type PendingUpdate = Awaited<ReturnType<typeof check>>;
 
 let pendingUpdate: PendingUpdate = null;
 let busy = false;
+
+// 檢查/下載逾時：GitHub 在部分網路會被限速或半途停滯（觀測值約 90KB/s），
+// 沒有逾時會讓狀態機卡在 Checking/Downloading 永不返回。
+const CHECK_TIMEOUT_MS = 30_000;
+// 7MB 安裝包在極慢網路（>=8KB/s）約 15 分鐘內可完成；超過視為停滯直接報錯。
+const DOWNLOAD_TIMEOUT_MS = 15 * 60_000;
 
 /** 從 store 讀目前版本（若 store 為 null 則退回空字串） */
 function currentVersion(): string {
@@ -50,7 +57,7 @@ export async function checkForUpdates(): Promise<void> {
         progress: null,
         error: null,
       });
-      pendingUpdate = await check();
+      pendingUpdate = await check({ timeout: CHECK_TIMEOUT_MS });
       if (pendingUpdate) {
         updateState.set({
           status: "Available",
@@ -107,7 +114,7 @@ export async function installUpdate(): Promise<boolean> {
       // 安裝版：確保持有 Update 物件
       if (!pendingUpdate) {
         try {
-          pendingUpdate = await check();
+          pendingUpdate = await check({ timeout: CHECK_TIMEOUT_MS });
         } catch (e) {
           updateState.set({
             status: "Error",
@@ -137,7 +144,27 @@ export async function installUpdate(): Promise<boolean> {
         progress: 0,
         error: null,
       });
-      await pendingUpdate.downloadAndInstall();
+      // 下載進度：updater plugin 以 Channel 回報 Started/Progress/Finished。
+      // 沒有這段，慢速網路下會停在 0% 看起來像當機（GitHub 限速約 90KB/s）。
+      let received = 0;
+      let total = 0;
+      await pendingUpdate.downloadAndInstall(
+        (e: DownloadEvent) => {
+          if (e.event === "Started" && e.data.contentLength) {
+            total = e.data.contentLength;
+          } else if (e.event === "Progress") {
+            received += e.data.chunkLength;
+            if (total > 0) {
+              const pct = Math.min(99, Math.floor((received / total) * 100));
+              const s = get(updateState);
+              if (s && s.status === "Downloading" && s.progress !== pct) {
+                updateState.set({ ...s, progress: pct });
+              }
+            }
+          }
+        },
+        { timeout: DOWNLOAD_TIMEOUT_MS },
+      );
       // NSIS passive 模式：安裝程式通常會關閉本程序再替換檔案。
       // 若到達此處，呼叫 relaunch() 確保程序重啟。
       updateState.set({

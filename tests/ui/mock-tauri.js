@@ -1,5 +1,5 @@
 // Browser-only IPC fixture: never calls native commands or modifies system settings.
-export function mockTauri({ theme, language, compact = false, advancedMode = false }) {
+export function mockTauri({ theme, language, compact = false, advancedMode = false, portable = true }) {
   const callbacks = new Map();
   const listeners = new Map();
   let nextId = 1;
@@ -53,9 +53,27 @@ export function mockTauri({ theme, language, compact = false, advancedMode = fal
         case 'list_timer_exempts': return [{ exeName: 'example.exe', pids: [123] }];
         case 'get_timer_global_enabled': return false;
         case 'get_timer_status': return { currentResolutionMs: 1, minIntervalMs: .5, maxIntervalMs: 15.625 };
-        case 'get_update_info': return { portable: true, version: '0.3.0' };
+        case 'get_update_info': return { portable, version: '0.3.0' };
+        case 'begin_update': return;
+        case 'end_update': return;
+        // 安裝版更新流：check 回報 0.4.0；download_and_install 以 Channel 回報進度
+        case 'plugin:updater|check':
+          return { rid: 7, currentVersion: '0.3.0', version: '0.4.0', date: null, body: '', rawJson: {} };
+        case 'plugin:updater|download_and_install': {
+          window.__uiMock.downloadArgs = args;
+          const send = args.onEvent?.onmessage;
+          send?.({ event: 'Started', data: { contentLength: 1000 } });
+          send?.({ event: 'Progress', data: { chunkLength: 400 } });
+          send?.({ event: 'Progress', data: { chunkLength: 100 } });
+          send?.({ event: 'Finished' });
+          // 停在下載中，由測試推進（模擬慢速網路）
+          return new Promise(resolve => { window.__uiMock.finishDownload = resolve; });
+        }
+        case 'plugin:process|restart': return;
         case 'check_portable_update':
           emit('update-state', { status: 'Available', currentVersion: '0.3.0', latestVersion: '0.4.0', progress: null, error: null }); return;
+        case 'perform_portable_update':
+          emit('update-state', { status: 'Downloading', currentVersion: '0.3.0', latestVersion: '0.4.0', progress: 50, error: null }); return;
         case 'sample_gpu_interrupts': return { instanceId: 'gpu-1', driver: 'example.sys', cpus: [], graphicsKernelCpus: [], sampleSecs: 3, eventsLost: 0 };
         case 'cancel_benchmark': state.cancelRequested = true; return;
         case 'open_data_folder': return;

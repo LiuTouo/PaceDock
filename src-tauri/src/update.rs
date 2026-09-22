@@ -115,6 +115,11 @@ pub fn current_version(app: &tauri::AppHandle) -> String {
 fn http_client() -> reqwest::blocking::Client {
     reqwest::blocking::Client::builder()
         .user_agent(USER_AGENT)
+        // GitHub 在部分網路會被限速或半途停滯；無逾時會讓更新流程永久卡住。
+        // ponytail: 全域 15 分鐘上限（最大下載物約 9MB，>=10KB/s 可完成）；
+        // 需要更寬容時改 per-request 逾時或升級 reqwest 0.13 的 read_timeout。
+        .connect_timeout(std::time::Duration::from_secs(10))
+        .timeout(std::time::Duration::from_secs(15 * 60))
         .build()
         .unwrap_or_default()
 }
@@ -470,7 +475,7 @@ pub fn download_portable_zip(
         ));
     }
 
-    let response = http_client()
+    let mut response = http_client()
         .get(&asset.browser_download_url)
         .send()
         .map_err(|e| map_http_error(e, "下載可攜版失敗"))?;
@@ -482,9 +487,22 @@ pub fn download_portable_zip(
 
     let declared_size = response.content_length();
 
-    let buf = response
-        .bytes()
-        .map_err(|e| format!("下載過程發生錯誤: {e}"))?;
+    // 串流下載：邊讀邊回報進度（總大小已知 = GitHub asset size），
+    // 避免 .bytes() 全有全無 + 前端只能看著 0% 等待。
+    let expected_total = asset.size.max(1);
+    let mut buf: Vec<u8> = Vec::with_capacity(expected_total as usize);
+    let mut chunk = vec![0u8; 64 * 1024];
+    loop {
+        use std::io::Read;
+        let n = response
+            .read(&mut chunk)
+            .map_err(|e| format!("下載過程發生錯誤: {e}"))?;
+        if n == 0 {
+            break;
+        }
+        buf.extend_from_slice(&chunk[..n]);
+        progress_cb(((buf.len() as u64 * 100) / expected_total).min(99) as u32);
+    }
 
     if buf.is_empty() {
         return Err("下載的檔案為空".to_string());
@@ -531,7 +549,7 @@ pub fn download_portable_zip(
 
     progress_cb(100);
 
-    Ok(buf.to_vec())
+    Ok(buf)
 }
 
 /// 可攜版 ZIP 內基準測試資源的目錄前綴

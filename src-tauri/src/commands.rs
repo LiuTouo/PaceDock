@@ -240,8 +240,9 @@ pub async fn perform_portable_update(
     );
 
     let version_for_download = version.clone();
+    let app_for_progress = app.clone();
 
-    // 階段 1：查詢 + 下載 + 校驗
+    // 階段 1：查詢 + 下載 + 校驗（下載進度即時 emit 給前端）
     let (zip_data, latest_str) = tokio::task::spawn_blocking(move || {
         let release = update::fetch_portable_release()?;
 
@@ -251,8 +252,20 @@ pub async fn perform_portable_update(
 
         let latest_str = release.version.to_string();
 
-        let zip_data = update::download_portable_zip(&release, |_pct| {
-            // 下載完成時由 download_portable_zip 回報 100%
+        // 進度閉包：download_portable_zip 每讀 64KB 回報一次，emit 給前端顯示 %
+        let version_for_progress = version_for_download.clone();
+        let latest_for_progress = latest_str.clone();
+        let zip_data = update::download_portable_zip(&release, |pct| {
+            let _ = app_for_progress.emit(
+                "update-state",
+                UpdateState {
+                    status: UpdateStatus::Downloading,
+                    latest_version: Some(latest_for_progress.clone()),
+                    current_version: version_for_progress.clone(),
+                    progress: Some(pct),
+                    error: None,
+                },
+            );
         })?;
 
         Ok::<_, String>((zip_data, latest_str))
